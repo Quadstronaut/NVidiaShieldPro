@@ -171,11 +171,12 @@
       </div>
       <div class="dim">{d.data.mount} ({d.data.fsType}) · {fmtBytes(d.data.usedBytes)} / {fmtBytes(d.data.totalBytes)}</div>
       <table class="kv">
-        <thead><tr><th>dev</th><th>r/s</th><th>w/s</th><th>read</th><th>write</th></tr></thead>
+        <thead><tr><th>dev</th><th>size</th><th>r/s</th><th>w/s</th><th>read</th><th>write</th></tr></thead>
         <tbody>
           {#each d.diskstats as s}
             <tr>
-              <td>{s.dev}</td>
+              <td>{s.dev}{#if s.mount} · {s.mount}{/if}</td>
+              <td>{s.sizeBytes ? fmtBytes(s.sizeBytes) : '—'}</td>
               <td>{s.readsPerSec}</td>
               <td>{s.writesPerSec}</td>
               <td>{fmtRate(s.readBytesPerSec)}</td>

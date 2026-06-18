@@ -118,10 +118,46 @@ function parseMounts(text, target) {
   return null;
 }
 
+// Hide tiny Android partitions: only partitions >= this size are shown (whole
+// disks are always shown). The Shield has ~30 sub-100MB system partitions plus
+// ram*/loop*/zram*/dm-* virtual devices — all noise for a drive-health view.
+const MIN_PARTITION_BYTES = 1024 * 1024 * 1024; // 1 GiB
+const WHOLE_DISK = /^(sd[a-z]+|mmcblk\d+|nvme\d+n\d+|hd[a-z]+|vd[a-z]+|xvd[a-z]+)$/;
+const PARTITION = /^(sd[a-z]+\d+|mmcblk\d+p\d+|nvme\d+n\d+p\d+|hd[a-z]+\d+|vd[a-z]+\d+|xvd[a-z]+\d+)$/;
+
+// /proc/partitions -> { name: sizeBytes } (field 2 is #blocks of 1 KiB).
+function parsePartitionSizes(text) {
+  const sizes = {};
+  if (!text) return sizes;
+  for (const line of text.trim().split('\n')) {
+    const f = line.trim().split(/\s+/);
+    if (f.length < 4 || f[0] === 'major') continue;
+    const blocks = Number(f[2]);
+    if (Number.isFinite(blocks)) sizes[f[3]] = blocks * 1024;
+  }
+  return sizes;
+}
+
+// /proc/mounts -> { deviceBasename: mountpoint }. Best-effort; on Android /data
+// may mount via a dm-* mapper, so a physical partition can have no direct mount.
+function parseMountMap(text) {
+  const map = {};
+  if (!text) return map;
+  for (const line of text.split('\n')) {
+    const f = line.split(/\s+/);
+    if (f.length < 2) continue;
+    const m = f[0].match(/\/(sd[a-z]+\d*|mmcblk\d+(?:p\d+)?|nvme\d+n\d+(?:p\d+)?)$/);
+    if (m && !map[m[1]]) map[m[1]] = f[1];
+  }
+  return map;
+}
+
 async function collectDiskstats(prev, dtSec) {
   // /proc/diskstats fields: major minor name reads ... sectorsRead ... writes ... sectorsWritten ...
-  // indices (after name at idx 2): 3=reads, 6=sectorsRead, 7=writes, 10=sectorsWritten
+  // indices (after name at idx 2): 3=reads, 5=sectorsRead, 7=writes, 9=sectorsWritten
   const text = await readText(`${config.hostProc}/diskstats`);
+  const sizes = parsePartitionSizes(await readText(`${config.hostProc}/partitions`));
+  const mounts = parseMountMap(await readText(`${config.hostProc}/mounts`));
   const SECTOR = 512;
   const cur = {};
   const out = [];
@@ -130,14 +166,24 @@ async function collectDiskstats(prev, dtSec) {
       const f = line.trim().split(/\s+/);
       if (f.length < 11) continue;
       const dev = f[2];
-      // Skip loop/ram pseudo-devices; keep real block devices + partitions.
-      if (/^(ram|loop|fd)\d/.test(dev)) continue;
+      // Whitelist real physical disks + their significant partitions. This naturally
+      // drops ram*/loop*/zram*/dm-*/fd* and the dozens of tiny Android partitions.
+      const size = sizes[dev] ?? 0;
+      const keep = WHOLE_DISK.test(dev) || (PARTITION.test(dev) && size >= MIN_PARTITION_BYTES);
+      if (!keep) continue;
       const reads = Number(f[3]);
       const sectorsRead = Number(f[5]);
       const writes = Number(f[7]);
       const sectorsWritten = Number(f[9]);
       if (![reads, sectorsRead, writes, sectorsWritten].every(Number.isFinite)) continue;
-      cur[dev] = { reads, writes, readBytes: sectorsRead * SECTOR, writeBytes: sectorsWritten * SECTOR };
+      cur[dev] = {
+        reads,
+        writes,
+        readBytes: sectorsRead * SECTOR,
+        writeBytes: sectorsWritten * SECTOR,
+        sizeBytes: size || null,
+        mount: mounts[dev] ?? null
+      };
     }
   }
   for (const dev of Object.keys(cur)) {
@@ -145,12 +191,20 @@ async function collectDiskstats(prev, dtSec) {
     const rate = (a, b) => (p && dtSec > 0 ? Math.max(0, (a - b) / dtSec) : 0);
     out.push({
       dev,
+      sizeBytes: cur[dev].sizeBytes,
+      mount: cur[dev].mount,
       readsPerSec: Math.round(rate(cur[dev].reads, p?.reads ?? 0)),
       writesPerSec: Math.round(rate(cur[dev].writes, p?.writes ?? 0)),
       readBytesPerSec: Math.round(rate(cur[dev].readBytes, p?.readBytes ?? 0)),
       writeBytesPerSec: Math.round(rate(cur[dev].writeBytes, p?.writeBytes ?? 0))
     });
   }
+  // Whole disks first, then partitions largest-first.
+  out.sort((a, b) => {
+    const da = WHOLE_DISK.test(a.dev) ? 0 : 1;
+    const db = WHOLE_DISK.test(b.dev) ? 0 : 1;
+    return da - db || (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0);
+  });
   return { diskstats: out, raw: cur };
 }
 
