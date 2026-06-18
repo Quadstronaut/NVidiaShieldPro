@@ -29,5 +29,6 @@ docker-bringup/bin/
 
 # --- Scratch / caches ---
 .playwright-mcp/
+/*.png
 *.log
 *.cache.json

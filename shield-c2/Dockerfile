@@ -32,6 +32,11 @@ WORKDIR /app
 COPY --from=build /app/build ./build
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
+# adapter-node bundled the static-serving handler into build/server/chunks/, so its
+# import.meta.url-relative 'client' dir resolves to build/server/chunks/client (wrong)
+# and every /_app/* asset 404s -> the app never hydrates. Symlink the expected path to
+# the real client dir so sirv serves the bundle. (server/chunks/ depth is stable.)
+RUN ln -sfn ../../client build/server/chunks/client
 EXPOSE 8888
 # adapter-node honours PORT; we mirror SHIELD_C2_PORT into PORT at start so a
 # single env controls the listen port.
