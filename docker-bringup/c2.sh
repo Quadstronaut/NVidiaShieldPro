@@ -41,7 +41,9 @@ elif [ -f /data/docker/shield-c2.tar ]; then
   $DOCKER load -i /data/docker/shield-c2.tar
 elif [ -d "$CTX" ]; then
   echo "building from $CTX (this can take a while on-device)"
-  $DOCKER build -t $IMG "$CTX"
+  # --network=host: classic-builder RUN steps otherwise get no DNS on this daemon
+  # (EAI_AGAIN registry.npmjs.org). Host net gives them the working host resolver.
+  $DOCKER build --network=host -t $IMG "$CTX"
 else
   echo "FATAL: no image, no tar, no build context at $CTX"; exit 1
 fi
