@@ -1,0 +1,33 @@
+# --- Node / SvelteKit build artifacts (shield-c2 app) ---
+node_modules/
+.svelte-kit/
+build/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+
+# --- Large device blobs already sitting in this folder: MUST NOT enter history ---
+*.apk
+*.apkm
+*.img
+*.zip
+*.tgz
+*.deb
+*.bin
+lineage-*.zip
+recovery-*.img
+
+# --- Docker static bundle + extracted daemon binaries (device artifacts) ---
+docker-bringup/docker-24.0.9.tgz
+docker-bringup/docker/
+docker-bringup/bin/
+*.tar
+*.tar.gz
+*.tar.xz
+
+# --- Scratch / caches ---
+.playwright-mcp/
+*.log
+*.cache.json
