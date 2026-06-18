@@ -169,8 +169,9 @@ async function collectDiskstats(prev, dtSec) {
       // Whitelist real physical disks + their significant partitions. This naturally
       // drops ram*/loop*/zram*/dm-*/fd* and the dozens of tiny Android partitions.
       const size = sizes[dev] ?? 0;
-      const keep = WHOLE_DISK.test(dev) || (PARTITION.test(dev) && size >= MIN_PARTITION_BYTES);
-      if (!keep) continue;
+      // Whole physical disks only — partitions are redundant with the /data statfs
+      // card and just clutter (sda is the one main HDD here).
+      if (!WHOLE_DISK.test(dev)) continue;
       const reads = Number(f[3]);
       const sectorsRead = Number(f[5]);
       const writes = Number(f[7]);

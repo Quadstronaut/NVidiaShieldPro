@@ -161,7 +161,7 @@
   </section>
 
   <!-- DRIVE -->
-  <section class="card">
+  <section class="card drive-card">
     <h2>Drive</h2>
     {#if metrics}
       {@const d = metrics.drive}
@@ -412,6 +412,8 @@
   }
 
   .wide-card { grid-column: 1 / -1; }
+  /* Drive card holds the widest table (diskstats) — give it two tracks */
+  .drive-card { grid-column: span 2; }
 
   /* Card section headings */
   h2 {
@@ -518,6 +520,7 @@
     text-align: left;
     padding: 3px 8px 3px 0;
     vertical-align: middle;
+    white-space: nowrap;
   }
 
   table.kv th {
