@@ -3,7 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#101116" />
     <title>shield-c2</title>
+    <style>
+      /* Paint the scarlet-cyberpunk base background before the app mounts so
+         there is no white flash. Mirrors --bg in +page.svelte. */
+      html { background: #101116; }
+    </style>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
