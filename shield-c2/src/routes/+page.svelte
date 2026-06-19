@@ -161,7 +161,7 @@
   </section>
 
   <!-- DRIVE -->
-  <section class="card drive-card">
+  <section class="card">
     <h2>Drive</h2>
     {#if metrics}
       {@const d = metrics.drive}
@@ -384,8 +384,9 @@
   /* Grid layout                                                         */
   /* ------------------------------------------------------------------ */
   main {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
     gap: 16px;
     padding: 20px;
   }
@@ -394,6 +395,11 @@
   /* Cards — acrylic-style (dark maroon base with blur)                 */
   /* ------------------------------------------------------------------ */
   .card {
+    /* Dynamic width: basis follows content (tables don't wrap), grow to fill the
+       row, wrap to the next line when they no longer fit. */
+    flex: 1 1 auto;
+    min-width: 240px;
+    max-width: 100%;
     /* Mirrors Windhawk AcrylicBrush over $surface at ~0.82 opacity */
     background: rgba(29, 0, 10, 0.82);
     backdrop-filter: blur(18px);
@@ -411,9 +417,7 @@
     box-shadow: 0 4px 22px rgba(255, 0, 85, 0.14), 0 1px 4px rgba(0, 0, 0, 0.6);
   }
 
-  .wide-card { grid-column: 1 / -1; }
-  /* Drive card holds the widest table (diskstats) — give it two tracks */
-  .drive-card { grid-column: span 2; }
+  .wide-card { flex-basis: 100%; }
 
   /* Card section headings */
   h2 {
@@ -558,6 +562,8 @@
   /* Drive SMART line                                                    */
   /* ------------------------------------------------------------------ */
   .smart {
+    /* Cap so the long SMART sentence doesn't drive the card's content width */
+    max-width: 46ch;
     font-size: 11px;
     color: var(--text-muted);
     font-family: var(--font-mono);
