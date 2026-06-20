@@ -11,6 +11,11 @@ deploy/deploy.env
 *.token
 *.pat
 deploy/.last-deployed
+# ssh deploy keys (the real key lives in /data/.ssh on the device, not here)
+id_ed25519*
+id_rsa*
+shield_deploy_ed25519*
+*.pem
 
 # --- large binaries / blobs (kept out of git) ---
 *.apk

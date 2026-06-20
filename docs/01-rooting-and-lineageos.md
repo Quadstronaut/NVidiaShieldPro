@@ -67,9 +67,13 @@ This also explains the root model: a **userdebug** build sets `ro.debuggable=1`,
 
 ---
 
-## Files referenced (kept out of git, large binaries)
+## Artifacts used (what to obtain — exact versions + hashes)
 
-- `recovery-22.2-foster.img` — LineageOS recovery for foster.
-- `lineage-22.2-foster.zip` — the unofficial userdebug LineageOS 22.2 build.
+The flashing blobs are **not committed** (large; `.gitignore`d), but here is exactly what was used so the record is complete and reproducible. Verify any download with `sha256sum` / `Get-FileHash -Algorithm SHA256` before flashing.
 
-These live in the working tree but are `.gitignore`d (see repo root). Keep them with your build set; they are not redistributed here.
+| File | Identity | Size | SHA-256 |
+|---|---|---|---|
+| `lineage-22.2-foster.zip` | unofficial LineageOS **22.2** userdebug for foster (running build reports `22.2-20260608-NIGHTLY-foster`) | 803,654,832 B (~766 MiB) | `2E8568071432407CE20B6B365F2483F46DBD4DC4A49E1EE96D059FF5D9448848` |
+| `recovery-22.2-foster.img` | LineageOS **22.2** recovery for foster | 21,913,600 B (~20.9 MiB) | `937F5C503DAFD26BD2421C19C5F44F0D609B590408048E195E03B78CA3470364` |
+
+> The zip's name is the release line (`22.2`); the *running* OS is the `20260608` nightly within it — the box may have been OTA'd to a later nightly after the initial flash (see timeline). Keep these with your build set; they are not redistributed here.
