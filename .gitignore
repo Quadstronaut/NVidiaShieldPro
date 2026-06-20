@@ -1,0 +1,30 @@
+# --- dependencies / build output ---
+node_modules/
+.svelte-kit/
+build/
+dist/
+
+# --- secrets (never commit) ---
+*.env
+deploy/deploy.env
+*credentials*
+*.token
+*.pat
+deploy/.last-deployed
+
+# --- large binaries / blobs (kept out of git) ---
+*.apk
+*.apkm
+*.zip
+*.img
+*.tgz
+*.tar
+*.tar.xz
+docker-bringup/docker/
+docker-bringup/bin/
+
+# --- caches / logs / scratch ---
+*.cache.json
+*.log
+.playwright-mcp/
+.DS_Store

@@ -1,0 +1,21 @@
+# shield-deploy.rc — Android init service for pull-on-boot deploy.
+# Install to /system/etc/init/shield-deploy.rc (needs `mount -o remount,rw /` first;
+# persistent on sda22, no dm-verity). Mirrors the dockerd.rc pattern but is a oneshot
+# (it runs to completion and exits, unlike dockerd which must be supervised).
+#
+# Bootstrap: the repo must already be cloned to /data/NVidiaShieldPro before this
+# fires (run deploy/git-sync.sh once by hand). See deploy/README.md.
+
+service shield_deploy /system/bin/sh /data/NVidiaShieldPro/deploy/pull-and-deploy.sh
+    user root
+    group root
+    seclabel u:r:su:s0
+    disabled
+    oneshot
+
+# Run after the box is up. dockerd also starts here; pull-and-deploy.sh waits for the
+# docker socket, so start-order between the two services does not matter.
+on property:sys.boot_completed=1
+    start shield_deploy
+
+# Manual trigger any time:  setprop ctl.start shield_deploy
