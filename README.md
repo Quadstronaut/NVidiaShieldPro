@@ -101,3 +101,5 @@ The kernel being **4.9** (and the broken Tegra bridge/veth path) is the single b
 | **Watchtower** | updated container *images* from a registry | Image-pull, not git-pull; only useful if images are built in CI and pushed. |
 
 **Implemented plan:** this repo is the source of truth; the Shield pulls via a small `git pull` + re-run-changed-launchers `init` service (the same pattern that already auto-starts `dockerd`), with Portainer Git stacks as the upgrade path. See [`deploy/README.md`](deploy/README.md).
+
+> _Pull-GitOps live since 2026-06-20 — deploy key + init service installed on the box._
