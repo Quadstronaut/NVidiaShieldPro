@@ -102,4 +102,13 @@ The kernel being **4.9** (and the broken Tegra bridge/veth path) is the single b
 
 **Implemented plan:** this repo is the source of truth; the Shield pulls via a small `git pull` + re-run-changed-launchers `init` service (the same pattern that already auto-starts `dockerd`), with Portainer Git stacks as the upgrade path. See [`deploy/README.md`](deploy/README.md).
 
-> _Pull-GitOps live since 2026-06-20 — deploy key + init service installed on the box._
+> _Pull-GitOps **live + reboot-verified** 2026-06-20: read-only deploy key + `shield-deploy` init service on the box; `init.svc.shield_deploy` confirmed running on boot after `dockerd`. On-device installs are deterministic (`npm ci` from the tracked lockfile)._
+
+---
+
+## Dependencies & security notes
+
+- **Build chain upgraded** (2026-06-20, council-reviewed): for `shield-c2`, `vite 5 → 6`, `@sveltejs/kit → 2.66`, `@sveltejs/vite-plugin-svelte → 6`, `@sveltejs/adapter-node → 5.5`. This cleared the `esbuild`/`vite` dev-server advisory cluster (esbuild → 0.25.x). Full `npm audit` 7 → 1.
+- **One residual advisory, by design:** `cookie <0.7.0` (GHSA-pxg6-pf52-xh8x, **LOW**) reaches through `@sveltejs/kit` 2.x. It is **irreducible** without abandoning SvelteKit 2, and **unreachable here** — `shield-c2` sets no cookies (`grep -r "cookies.set" src/` = 0 hits), and `npm audit --omit=dev` = **0** (the pruned runtime tree carries no vulnerable dep). Dependabot's lone **1 low** is a known, accepted, non-exploitable residual — not an open action.
+- **Reproducible builds:** `shield-c2/Dockerfile` uses `npm ci` against the committed `package-lock.json`, so the on-device arm64 image is exactly the audited tree (no `^`-range drift between audit and ship).
+- **Launchers are re-run-safe:** each `docker-bringup/*.sh` does `docker rm -f` *before* any port-free assert, so the pull-deploy can re-run them while a service is up without a false "port in use" failure.

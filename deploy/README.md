@@ -2,6 +2,8 @@
 
 This repo is the source of truth; the Shield pulls itself and re-runs the changed launchers. This is the right shape for *this* box — **Flux/k8s GitOps does not apply** (no Kubernetes here; see the root README's Deployment section).
 
+> **Status: LIVE — installed + reboot-verified 2026-06-20.** The read-only deploy key, the clone at `/data/NVidiaShieldPro`, and the `shield-deploy` init service are all on the box. A real reboot confirmed `init.svc.shield_deploy` runs on boot (after `dockerd`). The bootstrap steps below are kept as the reference for a rebuild.
+
 ## How it works
 
 ```
@@ -15,7 +17,7 @@ init service (shield-deploy.rc, on boot)
 - **Why git runs in a container:** the Android/Toybox userland has **no `git`**. Docker is the only thing on the box with network + git, so the pull borrows a throwaway `alpine/git` container with `/data` bind-mounted and `--network host`.
 - **Auth = a read-only SSH deploy key** (not a PAT). GitHub has no API to mint a PAT, but a deploy key *can* be created via the API, is scoped to **this one repo**, is **read-only**, and is revocable on its own. The key lives at `/data/.ssh/` (outside the repo, so the first clone can bootstrap). A leaked key exposes nothing but read access to this repo.
 - **Change detection without host git:** `git-sync.sh` prints the current `HEAD`; `pull-and-deploy.sh` compares it to `deploy/.last-deployed` and only redeploys when it moves.
-- **Launchers are idempotent** (`docker rm -f` + `run`), so redeploy just bounces each container onto the new image/config. The active set is the `ACTIVE` list in `redeploy.sh`.
+- **Launchers are idempotent + re-run-safe** (`docker rm -f` *before* any port-free assert, then `run`), so redeploy just bounces each container onto the new image/config. The active set is the `ACTIVE` list in `redeploy.sh`. (`c2.sh` originally asserted the port free *before* removing the old container, so re-running it while c2 was up FATAL'd on "port 8888 in use" — fixed to rm-first.)
 
 ## Credentials (read-only deploy key)
 
@@ -52,9 +54,9 @@ The key pair is created on a workstation; the **public** half is registered on t
 ## Revert
 Delete `/system/etc/init/shield-deploy.rc` (after `mount -o remount,rw /`). The checkout at `/data/NVidiaShieldPro` and the containers are untouched. Revoke the deploy key separately if desired.
 
-## Verify before trusting it (on-device checklist)
-- [ ] `alpine/git` pulls and clones to `/data/NVidiaShieldPro` over SSH with the deploy key.
-- [ ] `pull-and-deploy.sh` waits for dockerd, then logs `no change` on a second run.
-- [ ] A pushed commit that edits a launcher triggers a redeploy and bounces only via the idempotent launcher.
-- [ ] Survives a real reboot (service fires after dockerd; socket-wait works).
-- [ ] The private key is mode `600` and never appears in `git status` (`/data/.ssh` is outside the repo; `id_*` is gitignored anyway).
+## Verified on-device (2026-06-20)
+- [x] `alpine/git` pulled + cloned to `/data/NVidiaShieldPro` over SSH with the read-only deploy key.
+- [x] `pull-and-deploy.sh` waits for dockerd, then logs `no change` on an unchanged second run.
+- [x] A pushed commit triggered a redeploy — all three launchers re-ran, containers bounced.
+- [x] Survived a real reboot: `init.svc.shield_deploy=stopped` (oneshot ran on boot), `init.svc.dockerd=running`, boot run logged a clean pull.
+- [x] Private key is mode `600` at `/data/.ssh/` (outside the repo); never appears in `git status`.
