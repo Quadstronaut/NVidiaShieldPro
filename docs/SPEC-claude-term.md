@@ -1,35 +1,35 @@
 # SPEC — `claude-term`
 
-A LAN-only, browser-based way to launch and reattach **Claude Code** sessions running **on the Shield**, driven from a phone. A self-contained arm64 container serves a single terminal page (xterm.js) bridged to `tmux`-managed Claude Code sessions, with tap-to-inject "stance" snippet chips.
+> **STATUS: NOT YET BUILT — forward design only.** `claude-term` does not run on the Shield. No `claude-term` container exists and port `:7777` is unoccupied. This document is a design spec for a service that is intended to be built; nothing here describes current running state.
 
-> **Provenance:** Brainstorming session (superpowers:brainstorming), **user-approved 2026-06-20**. Decisions A1–A5 below were locked interactively. Downstream implementation (writing-plans → build) implements to THIS document; deviations require a logged note. Sibling of `shield-c2` (see [SPEC-shield-c2.md](SPEC-shield-c2.md)); reuses its host/Docker/launcher conventions.
+A LAN-only, browser-based way to launch and reattach **Claude Code** sessions running **on the Shield**, driven from a phone. A self-contained arm64 container serves a single terminal page (xterm.js) bridged to `tmux`-managed Claude Code sessions, with tap-to-inject "stance" snippet chips. Sibling of `shield-c2` (see [SPEC-shield-c2.md](SPEC-shield-c2.md)); reuses its host/Docker/launcher conventions.
 
-## 0. User-approved amendments (authoritative — override anything below)
+## 0. Authoritative amendments (override anything below)
 
 - **A1 — Access = LAN-only, browser-based.** No VPN/tunnel. Reachable from any browser on the home LAN. The phone is just a browser; nothing installed phone-side.
-- **A2 — Launch surface = a button in `shield-c2` (`:8888`) that opens the `claude-term` app at `:7777`.** The Claude *mobile app* / claude.ai / "Claude Code on web" were considered and rejected: they run in Anthropic's cloud and cannot reach the Shield's filesystem, LAN, or processes. The dashboard-button → on-device web terminal is the only architecture that runs Claude Code on *this* hardware with *these* files.
+- **A2 — Launch surface = a button in `shield-c2` (`:8888`) that opens the `claude-term` app at `:7777`.** The dashboard-button → on-device web terminal architecture runs Claude Code on this hardware with these files; cloud-hosted Claude surfaces (mobile app, claude.ai, web) run in Anthropic's cloud and cannot reach the Shield's filesystem, LAN, or processes.
 - **A3 — Session model = multiple named, persistent `tmux` sessions.** The page lists sessions, lets you create a new one (name + working dir under `/data/claude`), and reattach an existing one. Reattach survives phone sleep / app switch / page reload.
-- **A4 — Snippet chips = bracketed-paste prepend, editable config, optional per-chip submit.** Tapping a chip injects a (possibly multi-line) instruction block onto the input line WITHOUT submitting; you then type your prompt and hit Enter. A per-chip `submit:true` flag (APPROVED) makes a chip fire immediately. Snippet text lives in an editable `snippets.json` (no rebuild to change).
+- **A4 — Snippet chips = bracketed-paste prepend, editable config, optional per-chip submit.** Tapping a chip injects a (possibly multi-line) instruction block onto the input line WITHOUT submitting; you then type your prompt and hit Enter. A per-chip `submit:true` flag makes a chip fire immediately. Snippet text lives in an editable `snippets.json` (no rebuild to change).
 - **A5 — Auth = shared-secret gate.** One passphrase (env var), checked server-side, remembered via a cookie. Fail-closed: if no secret is configured the app refuses to serve. Plain HTTP on the LAN (secret crosses the LAN in cleartext — accepted for a trusted home LAN; HTTPS named as the upgrade path).
 
 ## 1. Device reality (the spec exists to honor these)
 
 - Host: NVIDIA Shield TV "foster" (Pro, 3 GB RAM), LineageOS 22.x userdebug, Android 15, **kernel 4.9.141 aarch64**, Tegra X1. LAN IP 10.0.0.88.
-- Docker: static 24.0.9, cgroup v1, storage overlay2, daemon socket `unix:///data/docker/docker.sock`, binaries `/data/docker/bin`, `--restart=always`, daemon auto-started by Android init on `sys.boot_completed=1`. `/data` is ext4, ~445 GB free, **not noexec**.
-- Networking: bridge/veth is **broken** on this kernel (ARP INCOMPLETE across docker0). **MANDATORY `--network host`.** No `-p`, no bridge nets. Container binds a host port directly on 10.0.0.88. Occupied host ports: `shield-c2` 8888, Portainer 9000/9443/8000, Uptime-Kuma 3001.
+- Docker: static 24.0.9, cgroup v1, storage overlay2, daemon socket `unix:///data/docker/docker.sock`, binaries `/data/docker/bin`, `--restart=always`, daemon auto-started by Android init on `sys.boot_completed=1`. `/data` is ext4, ~444 GB free, **not noexec**.
+- Networking: bridge/veth is **broken** on this kernel (ARP INCOMPLETE across docker0). **MANDATORY `--network host`.** No `-p`, no bridge nets. Container binds a host port directly on 10.0.0.88. Occupied host ports: `shield-c2` 8888, Portainer 9000/9443/8000, Uptime-Kuma 3001. Port 7777 is currently free.
 - On-device builds: classic builder only — `DOCKER_BUILDKIT=0` and `--network=host` on `docker build` (else npm install gets no DNS → `EAI_AGAIN registry.npmjs.org`). arm64 base images must be **digest-pinned** to the real arm64 manifest (resolve via `docker buildx imagetools inspect` on the PC).
 - SELinux permissive, root available.
 
-## 2. Resolved design decisions (locked, with justification)
+## 2. Resolved design decisions (with justification)
 
-- **D1 — Runtime = plain Node (`http` + `ws` + node-pty) serving a static xterm.js page.** NOT SvelteKit. The core is a WebSocket carrying PTY bytes; adapter-node has no first-class WS story and fights this. A single small Node process serving one static page + a WS upgrade is simpler and more robust here. (`shield-c2` stays SvelteKit; the two apps share nothing but conventions.)
-- **D2 — Terminal = `@xterm/xterm` (client) + `@homebridge/node-pty-prebuilt-multiarch` (server).** Off-the-shelf web terminals (ttyd/gotty/wetty) serve their *own* page; embedding them is an iframe, and the browser's cross-origin rule blocks injecting snippet text into them. xterm.js is a library embedded in *our* page, so a chip tap writes to the PTY directly (I5). The `@homebridge/` node-pty fork is used because upstream `node-pty` 1.x ships a mislabeled (x86_64) "arm64" binary; the fork has a genuine `linux-arm64` glibc prebuilt for Node 18+. *(R2: verify on-device.)*
-- **D3 — Session manager = `tmux`.** tmux owns persistence + multiplexing; node-pty stays a thin bridge that runs `tmux new`/`tmux attach`. A session is created **shell-rooted then auto-starts Claude Code**: `tmux new -d -s <name> -c <cwd>` (default login shell), then `tmux send-keys -t <name> 'claude' Enter`. This way exiting Claude Code drops to the shell and the session survives for reattach (robust against a Claude crash/exit; also gives the shell wanted for scratch/self-admin). The page attaches via `tmux attach -t <name>`. Persists across client disconnects while the container is up (I6).
+- **D1 — Runtime = plain Node (`http` + `ws` + node-pty) serving a static xterm.js page.** NOT SvelteKit. The core is a WebSocket carrying PTY bytes; adapter-node has no first-class WS story. A single small Node process serving one static page + a WS upgrade is simpler and more robust here. (`shield-c2` stays SvelteKit; the two apps share nothing but conventions.)
+- **D2 — Terminal = `@xterm/xterm` (client) + `@homebridge/node-pty-prebuilt-multiarch` (server).** xterm.js is a library embedded in our own page, so a chip tap writes to the PTY directly (I5) — an iframed third-party terminal (ttyd/gotty/wetty serves its own page) would be blocked from snippet injection by the browser's cross-origin rule. The `@homebridge/` node-pty fork is used because upstream `node-pty` 1.x ships a mislabeled (x86_64) "arm64" binary; the fork has a genuine `linux-arm64` glibc prebuilt for Node 18+. *(R2: verify on-device.)*
+- **D3 — Session manager = `tmux`.** tmux owns persistence + multiplexing; node-pty stays a thin bridge that runs `tmux new`/`tmux attach`. A session is created shell-rooted then auto-starts Claude Code: `tmux new -d -s <name> -c <cwd>` (default login shell), then `tmux send-keys -t <name> 'claude' Enter`. Exiting Claude Code drops to the shell and the session survives for reattach. The page attaches via `tmux attach -t <name>`. Persists across client disconnects while the container is up (I6).
 - **D4 — Base image = `node:20-bookworm-slim` (arm64, digest-pinned), NOT alpine.** Same rationale as `shield-c2` D3/I9: glibc degrades instead of `ENOSYS` on kernel 4.9. Installs `@anthropic-ai/claude-code`, `tmux`, `git`, and the app's deps. `ripgrep` present so Claude Code does not need `USE_BUILTIN_RIPGREP`.
 - **D5 — Host port = 7777** (`CLAUDE_TERM_PORT`, env-overridable). Free vs 8888/9000/9443/8000/3001. Launcher asserts free before binding.
 - **D6 — Claude Code auth = `CLAUDE_CODE_OAUTH_TOKEN`** generated once on the PC via `claude setup-token` (subscription-backed, ~1-year validity), injected as env + persisted by mounting `~/.claude` as a named volume. The interactive `ANTHROPIC_API_KEY` path is avoided (documented regressions where it still demands `/login`). *(R3: verify the container reaches an authenticated prompt headlessly.)*
-- **D7 — Snippet injection = bracketed paste.** A chip's body is wrapped `ESC[200~ … ESC[201~` and sent over the input WS → `pty.write(...)`. Bracketed paste makes Claude Code treat a *multi-line* block as pasted text (inserted, not submitted at the first newline). `submit:true` chips append a trailing `\r` after the wrapper to fire immediately. *(R1: verify Claude Code honors bracketed paste.)*
-- **D8 — Workspace root = `/data/claude` (rw), the ONLY writable host mount** besides the `~/.claude` credential volume. New-session working dirs must resolve under it (I3). The docker socket is **NOT** mounted (I9) — unlike `shield-c2`, this app needs no Docker control.
+- **D7 — Snippet injection = bracketed paste.** A chip's body is wrapped `ESC[200~ … ESC[201~` and sent over the input WS → `pty.write(...)`. Bracketed paste makes Claude Code treat a multi-line block as pasted text (inserted, not submitted at the first newline). `submit:true` chips append a trailing `\r` after the wrapper to fire immediately. *(R1: verify Claude Code honors bracketed paste.)*
+- **D8 — Workspace root = `/data/claude` (rw), the ONLY writable host mount** besides the `~/.claude` credential volume. New-session working dirs must resolve under it (I3). The docker socket is **NOT** mounted (I9) — this app needs no Docker control.
 
 ## 3. Interface / contract
 
@@ -76,7 +76,7 @@ All paths under `http://10.0.0.88:7777`. Every route AND the WS upgrade require 
 - **I4 HOST-NET-ONLY:** `--network host`, binds `CLAUDE_TERM_PORT` on the LAN IP. No `-p`, no bridge, no docker0 dependency.
 - **I5 INJECTION VIA OWN-PAGE TERMINAL:** the terminal is an embedded xterm.js in our own origin (not an iframed third-party terminal), so snippet chips write to the PTY directly. No cross-origin injection, no undocumented-protocol reverse engineering.
 - **I6 PERSISTENCE SCOPE:** tmux sessions persist across client disconnect / reload / phone sleep while the container runs. They do **NOT** survive a container restart or Shield reboot (fresh tmux server) — documented and accepted.
-- **I7 CONSERVATIVE SYSCALL BASE:** runtime runs on kernel 4.9.141 without `ENOSYS` at startup (glibc `node:20-bookworm-slim`; documented `node:18-bullseye-slim` fallback logged as an exception).
+- **I7 CONSERVATIVE SYSCALL BASE:** runtime runs on kernel 4.9.141 without `ENOSYS` at startup (glibc `node:20-bookworm-slim`; documented `node:18-bullseye-slim` fallback).
 - **I8 NON-ROOT CLAUDE:** Claude Code + the server run as a non-root in-container user; the OAuth token and `~/.claude` are readable only by that user.
 - **I9 NO DOCKER SOCKET:** `claude-term` never mounts or contacts `/data/docker/docker.sock`. (This is the bright line vs. `shield-c2`.)
 - **I10 CREDENTIAL PERSISTENCE, NO BAKING:** `~/.claude` is a named volume; the OAuth token + passphrase arrive via env at run time; neither is baked into the image or committed.
@@ -147,29 +147,29 @@ docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' claude-term | grep -q 'al
 
 # T9 no secrets in history (AC14/I11)
 ! docker exec claude-term printenv | grep -q 'CLAUDE_TERM_SECRET=$'                     # set, not empty
-! git -C G:/Documents/GIT/LOCAL-mod/NVIDIAShield log -p | grep -iE 'CLAUDE_CODE_OAUTH_TOKEN=sk|CLAUDE_TERM_SECRET='
+! git log -p | grep -iE 'CLAUDE_CODE_OAUTH_TOKEN=sk|CLAUDE_TERM_SECRET='
 
 # --- MANUAL (browser, on the phone) ---
 # T10 attach + live I/O + resize (AC4)
 # T11 reattach persistence: run `sleep 99`, kill the tab, reopen → still running (AC5/I6)
-# T12 snippet prepend: tap 🏛️ Council on an empty input → multi-line block sits unsent; type + Enter once (AC6/R1)
+# T12 snippet prepend: tap a multi-line chip on an empty input → block sits unsent; type + Enter once (AC6/R1)
 # T13 submit-flag chip fires in one tap (AC7)
 # T14 Claude Code reaches an authed prompt with no /login (AC11/R3)
 ```
 
-PASS = every scripted command exits 0 + the manual checks confirmed. A `pass` claim without its evidence is treated as not-done.
+A pass is every scripted command exiting 0 plus the manual checks confirmed, with evidence retained.
 
 ## 7. Risks / to verify before/at implementation (research leads, not ground truth)
 
 - **R1 — Bracketed paste honored by Claude Code's TUI.** Load-bearing for multi-line snippets. Verify a wrapped multi-line block lands on the input line unsent. Fallback if not: send the block as plain input and accept single-line snippets, or use a clipboard-paste affordance.
-- **R2 — `@homebridge/node-pty-prebuilt-multiarch` arm64 prebuilt** loads and spawns a PTY on this glibc/kernel-4.9 box. Verify by `require()` + a trivial `pty.spawn` on-device. Fallback: build node-pty from source in the image (adds a build stage).
+- **R2 — `@homebridge/node-pty-prebuilt-multiarch` arm64 prebuilt** loads and spawns a PTY on this glibc/kernel-4.9 box. Verify by `require()` + a trivial `pty.spawn` on-device. Fallback: build node-pty from source in the image.
 - **R3 — `CLAUDE_CODE_OAUTH_TOKEN` headless auth.** Verify a containerized `claude` is authenticated from the env token + mounted `~/.claude` with no browser/`/login`. Fallback: bootstrap `~/.claude` once interactively, then rely on the persisted volume.
 - **R4 — PTY device availability** inside the container (`/dev/pts`, `openpty`). Usually fine with default Docker; verify.
 - **R5 — Claude Code version drift** can change input handling. Consider pinning a known-good `@anthropic-ai/claude-code` version in the image.
 
-## 8. Setup prerequisites / open items (not blockers to building `claude-term` itself)
+## 8. Setup prerequisites / open items
 
-- **Repo transfer to the Shield.** This repo has **no git remote** (`git remote -v` empty), so "self-admin from the Shield" needs the `NVIDIAShield` tree placed at e.g. `/data/claude/NVIDIAShield`. Decide the mechanism at implementation: push to a private remote then clone; push to a bare repo on the Shield over the LAN; or `adb push` a `git bundle`. Tracked here, resolved later.
+- **Repo transfer to the Shield.** The `NVIDIAShield` tree must be placed at e.g. `/data/claude/NVIDIAShield` for self-admin from the Shield. Mechanism options: push to a private remote then clone; push to a bare repo on the Shield over the LAN; or `adb push` a `git bundle`.
 - **Generate `CLAUDE_CODE_OAUTH_TOKEN`** on the PC via `claude setup-token`; store it for the launcher to read from the environment (never committed).
 - **Choose `CLAUDE_TERM_SECRET`** (the gate passphrase); supply it the same way.
 
@@ -184,4 +184,4 @@ PASS = every scripted command exits 0 + the manual checks confirmed. A `pass` cl
 
 ## 10. Git preflight
 
-Commit this spec and (at build) the new app under `master` (user convention). `.gitignore` already excludes `node_modules`/build/blobs; add the local secret file (e.g. `docker-bringup/claude-term.env`) to it. No OAuth token or passphrase enters history (I11).
+Commit this spec and (at build) the new app under `master`. `.gitignore` already excludes `node_modules`/build/blobs; add the local secret file (e.g. `docker-bringup/claude-term.env`) to it. No OAuth token or passphrase enters history (I11).

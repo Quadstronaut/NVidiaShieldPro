@@ -1,16 +1,16 @@
-# shield-c2 — Threat Model (honest, unauthenticated-by-choice)
+# shield-c2 — Threat Model (unauthenticated-by-choice)
 
 **Scope:** the `shield-c2` status + command-and-control dashboard running on the
 NVIDIA Shield Docker host, reachable at `http://10.0.0.88:8888`.
 
-## Posture: UNAUTHENTICATED by explicit user decision (A2 / D5)
+## Posture: UNAUTHENTICATED by explicit decision (A2 / D5)
 
 There is **no authentication**. No login, no token, no session, no CSRF token.
 This matches the host's existing unauthenticated services — Portainer (9000) and
-Uptime-Kuma (3001) — and is an explicit decision for a **trusted operator on a
-trusted home LAN**. The page is open to **anyone on that LAN**: a guest device,
-a piece of IoT junk, or a stray browser issuing a cross-origin POST. We do not
-pretend otherwise.
+Uptime-Kuma (3001) — and is a deliberate choice for a **trusted operator on a
+trusted home LAN**. The page is open to **anyone on that LAN**: a guest device, a
+piece of IoT junk, or a stray browser issuing a cross-origin POST. This document
+states that openly.
 
 ## The real risk: the docker socket is root-equivalent
 
@@ -23,7 +23,7 @@ is the whole game.
 
 ## The blast-radius control: a server-side ALLOWLIST (I2), not auth
 
-Because we deliberately have no auth, the **socket allowlist is the sole and
+Because there is deliberately no auth, the **socket allowlist is the sole and
 primary control**. The server **never proxies the raw socket to the client**.
 The typed docker client (`src/lib/server/docker.js`) implements **only**:
 
@@ -61,8 +61,8 @@ defense**. A malicious page open in an operator's browser can issue a
 cross-origin `POST` (a simple form post or `fetch`) that the operator's browser
 will send to `10.0.0.88:8888`. Such a request can stop/start/restart a container.
 It still **cannot** exceed the allowlist — so the cap is "bounce an existing
-container", not "compromise the host". We accept this residual risk for the home-
-LAN deployment.
+container", not "compromise the host". This residual risk is accepted for the
+home-LAN deployment.
 
 ## Transport: plain HTTP is sniffable on a hostile L2
 
@@ -91,4 +91,4 @@ is explicit:
 4. Optionally add a CSRF token in the app once a session exists.
 
 Until then: the allowlist is the control, the LAN is the trust boundary, and this
-document is the honest statement of what that means.
+document is the statement of what that means.
