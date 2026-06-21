@@ -6,8 +6,8 @@ NVIDIA Shield Docker host, reachable at `http://10.0.0.88:8888`.
 ## Posture: UNAUTHENTICATED by explicit user decision (A2 / D5)
 
 There is **no authentication**. No login, no token, no session, no CSRF token.
-This matches the host's existing unauthenticated services — Portainer (9000) and
-Uptime-Kuma (3001) — and is an explicit decision for a **trusted operator on a
+This matches the host's other unauthenticated service — Uptime-Kuma (3001) —
+and is an explicit decision for a **trusted operator on a
 trusted home LAN**. The page is open to **anyone on that LAN**: a guest device,
 a piece of IoT junk, or a stray browser issuing a cross-origin POST. We do not
 pretend otherwise.

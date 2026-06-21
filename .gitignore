@@ -27,6 +27,10 @@ docker-bringup/bin/
 *.tar.gz
 *.tar.xz
 
+# --- Claude scratch (keep council-ledger.jsonl tracked; ignore the rest) ---
+.claude/worktrees/
+.claude/_*
+
 # --- Scratch / caches ---
 .playwright-mcp/
 /*.png

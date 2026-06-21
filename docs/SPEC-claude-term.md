@@ -16,7 +16,7 @@ A LAN-only, browser-based way to launch and reattach **Claude Code** sessions ru
 
 - Host: NVIDIA Shield TV "foster" (Pro, 3 GB RAM), LineageOS 22.x userdebug, Android 15, **kernel 4.9.141 aarch64**, Tegra X1. LAN IP 10.0.0.88.
 - Docker: static 24.0.9, cgroup v1, storage overlay2, daemon socket `unix:///data/docker/docker.sock`, binaries `/data/docker/bin`, `--restart=always`, daemon auto-started by Android init on `sys.boot_completed=1`. `/data` is ext4, ~445 GB free, **not noexec**.
-- Networking: bridge/veth is **broken** on this kernel (ARP INCOMPLETE across docker0). **MANDATORY `--network host`.** No `-p`, no bridge nets. Container binds a host port directly on 10.0.0.88. Occupied host ports: `shield-c2` 8888, Portainer 9000/9443/8000, Uptime-Kuma 3001.
+- Networking: bridge/veth is **broken** on this kernel (ARP INCOMPLETE across docker0). **MANDATORY `--network host`.** No `-p`, no bridge nets. Container binds a host port directly on 10.0.0.88. Occupied host ports: `shield-c2` 8888, Uptime-Kuma 3001.
 - On-device builds: classic builder only — `DOCKER_BUILDKIT=0` and `--network=host` on `docker build` (else npm install gets no DNS → `EAI_AGAIN registry.npmjs.org`). arm64 base images must be **digest-pinned** to the real arm64 manifest (resolve via `docker buildx imagetools inspect` on the PC).
 - SELinux permissive, root available.
 
