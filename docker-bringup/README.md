@@ -28,7 +28,6 @@ Conventions across the launchers:
 ### Service launchers
 | Script | Role |
 |---|---|
-| `portainer.sh` | Portainer CE (`:9000`). |
 | `kuma-netfix.sh`, `kuma-recreate.sh` | Uptime-Kuma (`:3001`); the netfix adds `NET_RAW` + Android net groups so ICMP monitors work. |
 | `c2.sh`, `c2-redeploy.sh` | `shield-c2` dashboard (`:8888`) build + run, and redeploy. |
 

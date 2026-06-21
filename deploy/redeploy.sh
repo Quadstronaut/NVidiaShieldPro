@@ -7,8 +7,8 @@ set -e
 REPO_DIR=${REPO_DIR:-/data/NVidiaShieldPro}
 BR="$REPO_DIR/docker-bringup"
 
-# Order matters loosely: management first, app last.
-ACTIVE="portainer.sh kuma-netfix.sh c2.sh"
+# Order matters loosely: monitors first, app last.
+ACTIVE="kuma-netfix.sh c2.sh"
 
 for s in $ACTIVE; do
   if [ -f "$BR/$s" ]; then

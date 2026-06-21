@@ -82,7 +82,6 @@ Rooting and flash reference: **[`docs/01-rooting-and-lineageos.md`](docs/01-root
 
 ### The stack running on the box
 - **Docker 24.0.9** (static arm64) — on **cgroup v1** (forced via a private-mount-namespace), **overlay2** on ext4 `/data`, **`--network host`** (the Tegra X1 kernel's bridge/veth path is broken — ARP stays INCOMPLETE across `docker0`). Reboot-persistent via an Android `init` service.
-- **Portainer** — `portainer/portainer-ce:lts`, `http://10.0.0.88:9000`
 - **Uptime-Kuma** — `louislam/uptime-kuma:2.4.0-slim`, `http://10.0.0.88:3001`
 - **`shield-c2`** — `shield-c2:latest`, `http://10.0.0.88:8888` (live CPU/RAM/disk/net/thermals + container control)
 - **`claude-term`** — `:7777` (**in design, not built**: phone-launched Claude Code sessions; see [`docs/SPEC-claude-term.md`](docs/SPEC-claude-term.md)). No such container runs and the port is unoccupied.

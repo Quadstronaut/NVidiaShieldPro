@@ -60,7 +60,6 @@ Only the non-persistent `service.adb.tcp.port` was being set (wiped each boot), 
 
 | Service | Image | URL | Notes |
 |---|---|---|---|
-| **Portainer** | `portainer/portainer-ce:lts` | `:9000` (9443 HTTPS, 8000 edge) | `-v /data/docker/docker.sock:/var/run/docker.sock` (the socket path is non-standard) + `-v /data/docker/portainer:/data`. First-run admin has a ~5-min timeout — set it promptly. Containers it launches must use host networking. [`portainer.sh`](../docker-bringup/portainer.sh) |
 | **Uptime-Kuma** | `louislam/uptime-kuma:2.4.0-slim` | `:3001` | `-v /data/docker/uptime-kuma:/app/data`. ICMP ping monitors need `--cap-add NET_RAW --group-add 3003 --group-add 3004` (Android paranoid networking gates raw sockets on AID_INET/AID_NET_RAW even as root) — see [`kuma-netfix.sh`](../docker-bringup/kuma-netfix.sh). TCP/HTTP monitors work without it. |
 | **shield-c2** | `shield-c2:latest` (custom SvelteKit, adapter-node) | `:8888` | Live CPU/RAM/disk/net/thermal + container start/stop/restart/logs behind a server-side allowlist. Source in [`../shield-c2/`](../shield-c2/), launcher [`c2.sh`](../docker-bringup/c2.sh). |
 
