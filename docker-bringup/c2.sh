@@ -25,8 +25,12 @@ echo "=== dockerd reachable? ==="
 $DOCKER version --format 'server {{.Server.Version}}' || { echo "FATAL: dockerd not responding"; exit 1; }
 echo
 
+echo "=== drop any previous $NAME container FIRST (so re-runs free the port) ==="
+$DOCKER rm -f $NAME 2>/dev/null || true
+echo
+
 echo "=== assert port $PORT is free (vs Portainer 9000/9443/8000, Kuma 3001) ==="
-# netstat on busybox: look for a LISTEN on :$PORT. If occupied, bail.
+# netstat on busybox: look for a LISTEN on :$PORT. If occupied by a NON-$NAME service, bail.
 if $BB netstat -ltn 2>/dev/null | $BB grep -qE "[:.]$PORT[[:space:]]"; then
   echo "FATAL: port $PORT already in use on this host"; exit 1
 fi
@@ -47,10 +51,6 @@ elif [ -d "$CTX" ]; then
 else
   echo "FATAL: no image, no tar, no build context at $CTX"; exit 1
 fi
-echo
-
-echo "=== drop any previous $NAME container (idempotent) ==="
-$DOCKER rm -f $NAME 2>/dev/null || true
 echo
 
 echo "=== run $NAME (host net, ro /proc /sys /data, rw socket, port $PORT) ==="
