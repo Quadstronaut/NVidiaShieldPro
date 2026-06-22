@@ -10,10 +10,14 @@ const config = assertConfig(loadConfig()); // throws + exits non-zero if no secr
 const auth = createAuth(config.secret);
 
 async function listDirs(workspace) {
+  // Always offer the workspace root first, so the new-session picker is never
+  // empty (a fresh /data/claude has no subdirs -> you could never launch).
+  const dirs = [workspace];
   try {
     const ents = await readdir(workspace, { withFileTypes: true });
-    return ents.filter((e) => e.isDirectory()).map((e) => path.join(workspace, e.name));
-  } catch { return []; }
+    for (const e of ents) if (e.isDirectory()) dirs.push(path.join(workspace, e.name));
+  } catch { /* keep just the root */ }
+  return dirs;
 }
 
 const server = createServer({
