@@ -92,3 +92,23 @@ is explicit:
 
 Until then: the allowlist is the control, the LAN is the trust boundary, and this
 document is the honest statement of what that means.
+
+---
+
+## claude-term (`:7777`)
+
+`claude-term` serves an interactive Claude Code shell (and a login shell behind
+it) to any LAN browser that knows one shared passphrase, over plain HTTP.
+
+- **Blast radius:** read/write within `/data/claude`; the Claude `CLAUDE_CODE_OAUTH_TOKEN`
+  (subscription-backed); and whatever the LAN is reachable from the container
+  (`--network host`). The docker socket is **not** mounted (I9), so — unlike
+  `shield-c2` — it cannot control other containers or the host daemon.
+- **Controls:** fail-closed shared-secret gate on every route incl. the WS upgrade
+  (I1); writable mounts limited to `/data/claude` + the `~/.claude` creds volume
+  (I2); new-session `cwd` confined under the workspace (I3); server + `claude` run
+  as non-root `claude` uid 1000 (I8); secret + token via env only, never in image
+  or git (I10/I11).
+- **Accepted risks:** the passphrase crosses the LAN in cleartext (trusted home
+  LAN); tmux sessions die on container restart / Shield reboot (I6).
+- **Upgrade path:** terminate TLS (HTTPS) and move to per-user auth.
