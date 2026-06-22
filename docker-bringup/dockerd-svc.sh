@@ -30,7 +30,11 @@ for a in sh ash mount umount awk sed tail head cat grep ln sleep mkdir chmod rm 
   ln -sf busybox $BIN/$a
 done
 printf '#!/system/bin/sh\nexit 0\n' > $BIN/modprobe; chmod 755 $BIN/modprobe
-rm -f $ROOT/docker.sock; rm -rf $ROOT/exec/*
+# Clear BOTH the socket and the pidfile: dockerd.pid persists in /data across
+# reboot, and if its old PID gets reused, dockerd refuses to start ("process
+# with PID N is still running") and init crash-loops this service. The kill loop
+# above already reaped any real dockerd, so the pidfile here is always stale.
+rm -f $ROOT/docker.sock $ROOT/dockerd.pid; rm -rf $ROOT/exec/*
 
 # Shield SSH server (dropbear, key-only root on :22). Independent of docker;
 # start it before this PID is handed off to dockerd via exec. The stock
