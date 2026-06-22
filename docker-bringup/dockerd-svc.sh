@@ -32,6 +32,11 @@ done
 printf '#!/system/bin/sh\nexit 0\n' > $BIN/modprobe; chmod 755 $BIN/modprobe
 rm -f $ROOT/docker.sock; rm -rf $ROOT/exec/*
 
+# Shield SSH server (dropbear, key-only root on :22). Independent of docker;
+# start it before this PID is handed off to dockerd via exec. The stock
+# /product/bin/sshd can't shield host keys on this ROM, hence the static build.
+sh $ROOT/dropbear.sh >> $ROOT/dropbear-boot.log 2>&1 || true
+
 cat > $ROOT/nsstart.sh <<'NS'
 BIN=/data/docker/bin
 ROOT=/data/docker
