@@ -37,17 +37,25 @@ echo "port $PORT free"
 echo "=== obtain image $IMG (load tar, else build from $CTX) ==="
 if $DOCKER image inspect $IMG >/dev/null 2>&1; then echo "image present"
 elif [ -f /data/docker/claude-term.tar ]; then $DOCKER load -i /data/docker/claude-term.tar
-elif [ -d "$CTX" ]; then
-  echo "building from $CTX (classic builder, host net for DNS)"
-  DOCKER_BUILDKIT=0 $DOCKER build --network=host -t $IMG "$CTX"
-else echo "FATAL: no image, no tar, no context at $CTX"; exit 1
+elif [ -f "$HERE/claude-term-build.sh" ]; then
+  # `docker build` can't get host networking on this kernel (bridge dead, BuildKit
+  # absent) -> build via run+commit instead. See claude-term-build.sh header.
+  echo "building image via run+commit ($HERE/claude-term-build.sh)"
+  CLAUDE_TERM_CTX="$CTX" sh "$HERE/claude-term-build.sh"
+else echo "FATAL: no image, no tar, no claude-term-build.sh"; exit 1
 fi
+
+echo "=== ensure workspace /data/claude writable by in-container claude (uid 1000) ==="
+mkdir -p /data/claude
+chown 1000:1000 /data/claude 2>/dev/null || true
+chmod 755 /data/claude
 
 echo "=== run $NAME (host net, rw /data/claude + creds vol, NO socket, port $PORT) ==="
 $DOCKER run -d \
   --name $NAME \
   --restart=always \
   --network host \
+  --group-add 3003 \
   -e CLAUDE_TERM_PORT=$PORT \
   -e CLAUDE_TERM_SECRET="$CLAUDE_TERM_SECRET" \
   -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
