@@ -5,7 +5,20 @@ header select, header input, header button { background: #1b2430; color: #d6deeb
 #chips { display: flex; gap: 6px; padding: 6px; flex-wrap: wrap; background: #0e131a; }
 .chip { background: #20303f; border: 1px solid #2f4256; border-radius: 16px; padding: 6px 12px; color: #cfe3ff; font-size: 13px; }
 .chip:active { background: #2f4d66; }
+/* tap feedback: green = injected, red = no session. flash() clears after 600ms. */
+.chip.chip-ok { background: #1f6f43; border-color: #2ea968; color: #eafff3; }
+.chip.chip-err { background: #6f2230; border-color: #b3445a; color: #ffe3e8; }
 #term { padding: 4px; height: calc(100vh - 92px); }
+#toast {
+  position: fixed; left: 50%; bottom: 16px;
+  transform: translateX(-50%) translateY(20px);
+  background: #1b2430; color: #d6deeb; border: 1px solid #2a3645;
+  border-radius: 8px; padding: 8px 14px; font-size: 13px; max-width: 90vw;
+  opacity: 0; pointer-events: none; z-index: 10;
+  transition: opacity .15s ease, transform .15s ease;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.err { border-color: #b3445a; color: #ffb3bf; }
 .center { display: grid; place-items: center; height: 100vh; }
 .card { display: grid; gap: 10px; padding: 24px; background: #11161d; border-radius: 12px; width: min(320px, 90vw); }
 .card h1 { margin: 0 0 8px; font-size: 18px; }

@@ -7,6 +7,21 @@ fit.fit();
 let ws = null;
 const $ = (id) => document.getElementById(id);
 
+// Transient UI feedback so taps never feel dead (the chips used to no-op silently).
+function flash(el, cls) {
+  el.classList.add(cls);
+  setTimeout(() => el.classList.remove(cls), 600);
+}
+let toastTimer = null;
+function toast(msg, isErr) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.toggle('err', !!isErr);
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
 async function api(path, opts) {
   const r = await fetch(path, opts);
   if (r.status === 401) { location.href = '/login'; throw new Error('unauth'); }
@@ -31,11 +46,17 @@ async function loadChips() {
     b.textContent = c.label;
     b.className = 'chip';
     b.addEventListener('click', () => {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        flash(b, 'chip-err');
+        toast('No session connected — create or pick one first', true);
+        return;
+      }
       const ESC = '\x1b';
       const payload = `${ESC}[200~${c.body}${ESC}[201~` + (c.submit ? '\r' : '');
       ws.send(JSON.stringify({ type: 'data', data: payload }));
       term.focus();
+      flash(b, 'chip-ok');
+      toast(c.submit ? `Sent + submitted: ${c.label}` : `Inserted: ${c.label}`, false);
     });
     $('chips').appendChild(b);
   }
