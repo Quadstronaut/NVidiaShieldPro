@@ -10,9 +10,12 @@
 # ---- build stage ----
 FROM --platform=linux/arm64 node:20-bookworm-slim@sha256:10fc5f5f33cba34a4befa58fcf95f724e67707fab7c32fb8cd3fcf90ebcc20df AS build
 WORKDIR /app
-# Install ALL deps (incl. dev) for the SvelteKit build.
-COPY package.json ./
-RUN npm install --no-audit --no-fund
+# Install ALL deps (incl. dev) for the SvelteKit build, pinned to the lockfile.
+# npm ci = deterministic install of exactly the audited tree (needs package-lock.json,
+# which IS tracked in this repo) — closes the lock-bypass drift where `npm install`
+# re-resolved from ^ ranges every build.
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY . .
 RUN npm run build
 # Prune to production deps only for the runtime copy.

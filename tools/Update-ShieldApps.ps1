@@ -34,7 +34,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]   $DeviceMac      = '00:04:4B:5D:68:B5',
+    [string]   $DeviceMac      = '',   # set to your Shield's eth0 MAC for ARP-based IP discovery, or just pass -KnownIp 10.0.0.88
     [int]      $AdbPort        = 5555,
     [string]   $KnownIp,
     [int]      $ReleasesToScan = 6,

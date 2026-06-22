@@ -1,16 +1,16 @@
-# shield-c2 — Threat Model (honest, unauthenticated-by-choice)
+# shield-c2 — Threat Model (unauthenticated-by-choice)
 
 **Scope:** the `shield-c2` status + command-and-control dashboard running on the
 NVIDIA Shield Docker host, reachable at `http://10.0.0.88:8888`.
 
-## Posture: UNAUTHENTICATED by explicit user decision (A2 / D5)
+## Posture: UNAUTHENTICATED by explicit decision (A2 / D5)
 
 There is **no authentication**. No login, no token, no session, no CSRF token.
 This matches the host's other unauthenticated service — Uptime-Kuma (3001) —
-and is an explicit decision for a **trusted operator on a
-trusted home LAN**. The page is open to **anyone on that LAN**: a guest device,
-a piece of IoT junk, or a stray browser issuing a cross-origin POST. We do not
-pretend otherwise.
+and is a deliberate choice for a **trusted operator on a
+trusted home LAN**. The page is open to **anyone on that LAN**: a guest device, a
+piece of IoT junk, or a stray browser issuing a cross-origin POST. This document
+states that openly.
 
 ## The real risk: the docker socket is root-equivalent
 
@@ -23,7 +23,7 @@ is the whole game.
 
 ## The blast-radius control: a server-side ALLOWLIST (I2), not auth
 
-Because we deliberately have no auth, the **socket allowlist is the sole and
+Because there is deliberately no auth, the **socket allowlist is the sole and
 primary control**. The server **never proxies the raw socket to the client**.
 The typed docker client (`src/lib/server/docker.js`) implements **only**:
 
@@ -61,8 +61,8 @@ defense**. A malicious page open in an operator's browser can issue a
 cross-origin `POST` (a simple form post or `fetch`) that the operator's browser
 will send to `10.0.0.88:8888`. Such a request can stop/start/restart a container.
 It still **cannot** exceed the allowlist — so the cap is "bounce an existing
-container", not "compromise the host". We accept this residual risk for the home-
-LAN deployment.
+container", not "compromise the host". This residual risk is accepted for the
+home-LAN deployment.
 
 ## Transport: plain HTTP is sniffable on a hostile L2
 
@@ -91,24 +91,4 @@ is explicit:
 4. Optionally add a CSRF token in the app once a session exists.
 
 Until then: the allowlist is the control, the LAN is the trust boundary, and this
-document is the honest statement of what that means.
-
----
-
-## claude-term (`:7777`)
-
-`claude-term` serves an interactive Claude Code shell (and a login shell behind
-it) to any LAN browser that knows one shared passphrase, over plain HTTP.
-
-- **Blast radius:** read/write within `/data/claude`; the Claude `CLAUDE_CODE_OAUTH_TOKEN`
-  (subscription-backed); and whatever the LAN is reachable from the container
-  (`--network host`). The docker socket is **not** mounted (I9), so — unlike
-  `shield-c2` — it cannot control other containers or the host daemon.
-- **Controls:** fail-closed shared-secret gate on every route incl. the WS upgrade
-  (I1); writable mounts limited to `/data/claude` + the `~/.claude` creds volume
-  (I2); new-session `cwd` confined under the workspace (I3); server + `claude` run
-  as non-root `claude` uid 1000 (I8); secret + token via env only, never in image
-  or git (I10/I11).
-- **Accepted risks:** the passphrase crosses the LAN in cleartext (trusted home
-  LAN); tmux sessions die on container restart / Shield reboot (I6).
-- **Upgrade path:** terminate TLS (HTTPS) and move to per-user auth.
+document is the statement of what that means.

@@ -35,8 +35,8 @@ On the Shield, via the launcher:
 sh docker-bringup/c2.sh
 ```
 
-It builds/loads `shield-c2:latest`, asserts port 8888 is free, removes any prior
-container, and runs with `--network host`, `--restart=always`, ro `/proc`/`/sys`/
+It builds/loads `shield-c2:latest`, removes any prior container, asserts port 8888
+is free, and runs with `--network host`, `--restart=always`, ro `/proc`/`/sys`/
 `/data`, and the rw docker socket. Idempotent.
 
 ## Env

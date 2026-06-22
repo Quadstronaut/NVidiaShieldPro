@@ -1,14 +1,28 @@
-# --- Node / SvelteKit build artifacts (shield-c2 app) ---
+# --- dependencies / build output ---
 node_modules/
 .svelte-kit/
 build/
 dist/
 *.tsbuildinfo
+
+# --- secrets (never commit) ---
+*.env
 .env
 .env.*
 !.env.example
+deploy/deploy.env
+docker-bringup/claude-term.env
+*credentials*
+*.token
+*.pat
+deploy/.last-deployed
+# ssh deploy / host keys — real keys live on the device (/data/ssh, /data/.ssh), not here
+id_ed25519*
+id_rsa*
+shield_deploy_ed25519*
+*.pem
 
-# --- Large device blobs already sitting in this folder: MUST NOT enter history ---
+# --- large binaries / device blobs (kept out of git) ---
 *.apk
 *.apkm
 *.img
@@ -16,31 +30,24 @@ dist/
 *.tgz
 *.deb
 *.bin
-lineage-*.zip
-recovery-*.img
-
-# --- Docker static bundle + extracted daemon binaries (device artifacts) ---
-docker-bringup/docker-24.0.9.tgz
-docker-bringup/docker/
-docker-bringup/bin/
 *.tar
 *.tar.gz
 *.tar.xz
+lineage-*.zip
+recovery-*.img
+docker-bringup/docker-24.0.9.tgz
+docker-bringup/docker/
+docker-bringup/bin/
 
 # --- Claude scratch (keep council-ledger.jsonl tracked; ignore the rest) ---
 .claude/worktrees/
 .claude/_*
+.superpowers/
 
-# --- Scratch / caches ---
+# --- caches / logs / scratch ---
 .playwright-mcp/
 /*.png
 review/
-package-lock.json
 *.log
 *.cache.json
-
-# claude-term local secret env (NEVER commit)
-docker-bringup/claude-term.env
-
-# SDD scratch (review packages, progress ledger)
-.superpowers/
+.DS_Store
