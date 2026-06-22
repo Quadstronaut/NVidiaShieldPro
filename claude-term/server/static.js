@@ -11,6 +11,7 @@ const VENDOR = {
 };
 
 export async function serveStatic(req, res, publicDir, nodeModules = path.resolve('node_modules')) {
+  if (req.method && req.method !== 'GET') return false; // FIX 6: static files GET-only
   const url = req.url.split('?')[0];
   let file;
   if (VENDOR[url]) file = path.join(nodeModules, VENDOR[url]);

@@ -22,5 +22,6 @@ const server = createServer({
 });
 
 server.listen(config.port, () => {
-  console.log(`claude-term on http://10.0.0.88:${config.port} (LAN, secret-gated)`);
+  // FIX 7: use env var for host in log, not hardcoded IP
+  console.log(`claude-term on http://${process.env.CLAUDE_TERM_HOST || '0.0.0.0'}:${config.port} (LAN, secret-gated)`);
 });

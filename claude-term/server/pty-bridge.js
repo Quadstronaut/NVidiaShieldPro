@@ -22,7 +22,8 @@ export function attachSession(ws, sessionName, { spawn = nodePty.spawn } = {}) {
     let m;
     try { m = JSON.parse(raw.toString()); } catch { return; }
     if (m.type === 'data') p.write(m.data);
-    else if (m.type === 'resize') p.resize(m.cols, m.rows);
+    // FIX 5: clamp resize dims to [1, 500] to prevent malformed PTY state
+    else if (m.type === 'resize') p.resize(Math.max(1, Math.min(500, m.cols | 0)), Math.max(1, Math.min(500, m.rows | 0)));
   });
   // I6: detaching the PTY leaves the tmux session running for reattach.
   ws.on('close', () => p.kill());

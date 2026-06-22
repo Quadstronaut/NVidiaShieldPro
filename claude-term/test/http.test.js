@@ -71,3 +71,15 @@ test('api without cookie → 401', async () => {
   assert.equal(r.status, 401);
   srv.close();
 });
+
+// FIX 1: DELETE with invalid session name (contains space after URL-decode) → 400
+test('DELETE /api/sessions/:name with invalid name → 400', async () => {
+  const { srv, base } = await boot();
+  const login = await fetch(base + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret: 'pw' }) });
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const r = await fetch(base + '/api/sessions/bad%20name', { method: 'DELETE', headers: { cookie } });
+  assert.equal(r.status, 400);
+  const body = await r.json();
+  assert.equal(body.error, 'invalid session name');
+  srv.close();
+});
