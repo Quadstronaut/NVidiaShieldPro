@@ -40,14 +40,19 @@ test('createSession rejects a bad name before any exec', async () => {
   await assert.rejects(() => createSession({ name: 'bad name', cwd: '/tmp', workspace: '/tmp', exec }), /name/i);
 });
 
-test('listSessions parses tmux -F output incl. cwd', async () => {
+test('listSessions lists names then fetches per-session fields (robust to tmux tab->_ mangling)', async () => {
   const exec = async (cmd, args) => {
-    if (args[0] === 'list-sessions') return { stdout: 'dev\t2\t1718900000\t1\n', stderr: '' };
-    if (args[0] === 'display-message') return { stdout: '/data/claude/proj\n', stderr: '' };
+    if (args[0] === 'list-sessions') return { stdout: 'dev\n', stderr: '' }; // names only
+    if (args[0] === 'display-message') {
+      const fmt = args[args.length - 1];
+      if (fmt === '#{pane_current_path}') return { stdout: '/data/claude/proj\n', stderr: '' };
+      if (fmt === '#{session_attached}') return { stdout: '1\n', stderr: '' };
+      if (fmt === '#{session_windows}') return { stdout: '2\n', stderr: '' };
+    }
     return { stdout: '', stderr: '' };
   };
   const s = await listSessions({ exec });
-  assert.equal(s[0].name, 'dev');
+  assert.equal(s[0].name, 'dev'); // clean name, no underscores
   assert.equal(s[0].windows, 2);
   assert.equal(s[0].attached, true);
   assert.equal(s[0].cwd, '/data/claude/proj');

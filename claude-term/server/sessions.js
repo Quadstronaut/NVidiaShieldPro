@@ -27,25 +27,35 @@ export async function confineCwd(cwd, workspace) {
   return target;
 }
 
-const FMT = '#{session_name}\t#{session_windows}\t#{session_created}\t#{session_attached}';
-
+// tmux on this Android/kernel-4.9 build mangles a TAB separator in -F format
+// output into '_' (verified on-device), so packing fields into one -F line yields
+// e.g. "vtest_1_1700000000_0". Instead: list session NAMES alone (single field,
+// no separator to corrupt), then fetch each session's fields with per-session
+// display-message. The name stays clean and WS attach gets the right target.
 export async function listSessions({ exec = defaultExec } = {}) {
-  let out;
+  let names;
   try {
-    out = await exec('tmux', ['list-sessions', '-F', FMT]);
+    const out = await exec('tmux', ['list-sessions', '-F', '#{session_name}']);
+    names = out.stdout.split('\n').filter(Boolean);
   } catch {
     return []; // no server / no sessions
   }
-  const lines = out.stdout.split('\n').filter(Boolean);
   const sessions = [];
-  for (const line of lines) {
-    const [name, windows, created, attached] = line.split('\t');
-    let cwd = '';
+  for (const name of names) {
+    let cwd = '', attached = false, windows = 0;
     try {
       const c = await exec('tmux', ['display-message', '-p', '-t', name, '#{pane_current_path}']);
       cwd = c.stdout.trim();
     } catch { /* leave blank */ }
-    sessions.push({ name, windows: Number(windows), created: Number(created), attached: attached === '1', cwd });
+    try {
+      const a = await exec('tmux', ['display-message', '-p', '-t', name, '#{session_attached}']);
+      attached = a.stdout.trim() === '1';
+    } catch { /* default false */ }
+    try {
+      const w = await exec('tmux', ['display-message', '-p', '-t', name, '#{session_windows}']);
+      windows = Number(w.stdout.trim()) || 0;
+    } catch { /* default 0 */ }
+    sessions.push({ name, windows, created: 0, attached, cwd });
   }
   return sessions;
 }
