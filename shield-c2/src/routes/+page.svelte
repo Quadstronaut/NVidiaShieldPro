@@ -111,6 +111,7 @@
   </div>
   <span class="status" class:ok={connected}>{connected ? 'live' : 'connecting…'}</span>
   {#if streamError}<span class="err">sampler: {streamError}</span>{/if}
+  <a class="claude-link" href="http://10.0.0.88:7777" target="_blank" rel="noopener">🤖 Claude Code →</a>
   <span class="note">unauthenticated · LAN only</span>
 </header>
 
@@ -372,6 +373,24 @@
     color: var(--text-muted);
     letter-spacing: 0.03em;
     font-family: var(--font-mono);
+  }
+
+  /* Claude Code launch link — sits before the .note right-anchor (AC15) */
+  .claude-link {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    padding: 2px 10px;
+    border-radius: 10px;
+    background: rgba(0, 162, 255, 0.10);
+    color: var(--link);
+    border: 1px solid rgba(0, 162, 255, 0.35);
+    text-decoration: none;
+    transition: background 0.15s, box-shadow 0.15s;
+  }
+  .claude-link:hover {
+    background: rgba(0, 162, 255, 0.20);
+    box-shadow: 0 0 8px rgba(0, 162, 255, 0.30);
   }
 
   .err {
