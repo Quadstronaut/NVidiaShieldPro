@@ -7,6 +7,11 @@ function num(v, d) {
 }
 
 export function loadConfig(env = process.env) {
+  // New sessions auto-launch Claude with permission prompts SKIPPED by default,
+  // so a phone-driven session doesn't stall waiting for approve dialogs on this
+  // LAN-trusted device. The real CLI flag is --dangerously-skip-permissions.
+  // Set CLAUDE_TERM_SKIP_PERMISSIONS=0 to launch vanilla `claude` (prompts on).
+  const skipPermissions = env.CLAUDE_TERM_SKIP_PERMISSIONS !== '0';
   return {
     port: num(env.CLAUDE_TERM_PORT, 7777),
     secret: env.CLAUDE_TERM_SECRET ?? '',
@@ -16,6 +21,8 @@ export function loadConfig(env = process.env) {
     oauthToken: env.CLAUDE_CODE_OAUTH_TOKEN ?? '',
     // Open mode: serve with NO passphrase gate (LAN-trusted, like shield-c2).
     noAuth: env.CLAUDE_TERM_NO_AUTH === '1',
+    skipPermissions,
+    launchCmd: skipPermissions ? 'claude --dangerously-skip-permissions' : 'claude',
   };
 }
 

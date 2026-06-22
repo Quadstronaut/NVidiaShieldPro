@@ -69,12 +69,13 @@ export async function hasSession({ name, exec = defaultExec }) {
   }
 }
 
-export async function createSession({ name, cwd, workspace, exec = defaultExec }) {
+export async function createSession({ name, cwd, workspace, launchCmd = 'claude', exec = defaultExec }) {
   if (!validName(name)) throw new Error(`invalid session name: ${name}`);
   const safeCwd = await confineCwd(cwd, workspace);
   // Shell-rooted, then auto-start Claude Code so exiting claude drops to a shell (D3).
+  // launchCmd is typed verbatim into the shell (e.g. with --dangerously-skip-permissions).
   await exec('tmux', ['new-session', '-d', '-s', name, '-c', safeCwd]);
-  await exec('tmux', ['send-keys', '-t', name, 'claude', 'Enter']);
+  await exec('tmux', ['send-keys', '-t', name, launchCmd, 'Enter']);
 }
 
 export async function killSession({ name, exec = defaultExec }) {

@@ -63,7 +63,7 @@ export function createServer({ config, auth, deps }) {
     if (url === '/api/sessions' && req.method === 'POST') {
       const { name, cwd } = await readBody(req);
       try {
-        await deps.createSession({ name, cwd, workspace: config.workspace });
+        await deps.createSession({ name, cwd, workspace: config.workspace, launchCmd: config.launchCmd });
         return json(res, 201, { ok: true });
       } catch (e) { return json(res, 400, { error: e.message }); }
     }

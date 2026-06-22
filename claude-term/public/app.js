@@ -2,10 +2,22 @@ const term = new window.Terminal({ cursorBlink: true, fontSize: 14 });
 const fit = new window.FitAddon.FitAddon();
 term.loadAddon(fit);
 term.open(document.getElementById('term'));
-fit.fit();
 
 let ws = null;
 const $ = (id) => document.getElementById(id);
+
+// Keep xterm sized to its container and the remote PTY in step. The terminal
+// used to render at xterm's default 80x24 (≈a quarter of the screen) because the
+// one-shot fit ran before #term had its real layout, and tmux then inherited it.
+// Re-fit on a frame, on any container resize, and on every reconnect.
+function syncFit() {
+  try { fit.fit(); } catch { /* container not laid out yet */ }
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+  }
+}
+requestAnimationFrame(syncFit);
+new ResizeObserver(syncFit).observe(document.getElementById('term'));
 
 // Transient UI feedback so taps never feel dead (the chips used to no-op silently).
 function flash(el, cls) {
@@ -67,14 +79,11 @@ function connect(name) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws?session=${encodeURIComponent(name)}`);
   ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.type === 'data') term.write(m.data); };
-  ws.onopen = () => { fit.fit(); ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows })); };
+  ws.onopen = () => { requestAnimationFrame(syncFit); };
 }
 
 term.onData((d) => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'data', data: d })); });
-window.addEventListener('resize', () => {
-  fit.fit();
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-});
+window.addEventListener('resize', syncFit);
 
 $('sessions').addEventListener('change', (e) => connect(e.target.value));
 $('refresh').addEventListener('click', refreshSessions);

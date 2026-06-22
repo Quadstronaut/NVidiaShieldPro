@@ -35,6 +35,15 @@ test('createSession validates then issues tmux new + send-keys claude (D3)', asy
   await rm(ws, { recursive: true, force: true });
 });
 
+test('createSession types the given launchCmd verbatim (e.g. skip-permissions)', async () => {
+  const ws = await mkdtemp(path.join(tmpdir(), 'ws-'));
+  const calls = [];
+  const exec = async (cmd, args) => { calls.push([cmd, ...args]); return { stdout: '', stderr: '' }; };
+  await createSession({ name: 'dev', cwd: ws, workspace: ws, launchCmd: 'claude --dangerously-skip-permissions', exec });
+  assert.deepEqual(calls[1], ['tmux', 'send-keys', '-t', 'dev', 'claude --dangerously-skip-permissions', 'Enter']);
+  await rm(ws, { recursive: true, force: true });
+});
+
 test('createSession rejects a bad name before any exec', async () => {
   const exec = async () => { throw new Error('should not run'); };
   await assert.rejects(() => createSession({ name: 'bad name', cwd: '/tmp', workspace: '/tmp', exec }), /name/i);
