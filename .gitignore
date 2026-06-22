@@ -38,3 +38,6 @@ review/
 package-lock.json
 *.log
 *.cache.json
+
+# claude-term local secret env (NEVER commit)
+docker-bringup/claude-term.env
