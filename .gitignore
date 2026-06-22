@@ -41,3 +41,6 @@ package-lock.json
 
 # claude-term local secret env (NEVER commit)
 docker-bringup/claude-term.env
+
+# SDD scratch (review packages, progress ledger)
+.superpowers/
