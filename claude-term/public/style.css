@@ -1,0 +1,12 @@
+* { box-sizing: border-box; }
+body { margin: 0; background: #0b0f14; color: #d6deeb; font-family: system-ui, sans-serif; }
+header { display: flex; gap: 6px; padding: 6px; flex-wrap: wrap; align-items: center; background: #11161d; }
+header select, header input, header button { background: #1b2430; color: #d6deeb; border: 1px solid #2a3645; border-radius: 6px; padding: 6px 8px; font-size: 14px; }
+#chips { display: flex; gap: 6px; padding: 6px; flex-wrap: wrap; background: #0e131a; }
+.chip { background: #20303f; border: 1px solid #2f4256; border-radius: 16px; padding: 6px 12px; color: #cfe3ff; font-size: 13px; }
+.chip:active { background: #2f4d66; }
+#term { padding: 4px; height: calc(100vh - 92px); }
+.center { display: grid; place-items: center; height: 100vh; }
+.card { display: grid; gap: 10px; padding: 24px; background: #11161d; border-radius: 12px; width: min(320px, 90vw); }
+.card h1 { margin: 0 0 8px; font-size: 18px; }
+.err { color: #ff6b6b; min-height: 1em; margin: 0; font-size: 13px; }

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>claude-term — login</title><link rel="stylesheet" href="/style.css" /></head>
+<body class="center">
+  <form id="f" class="card">
+    <h1>claude-term</h1>
+    <input id="secret" type="password" placeholder="passphrase" autofocus autocomplete="current-password" />
+    <button type="submit">Unlock</button>
+    <p id="err" class="err"></p>
+  </form>
+  <script>
+    document.getElementById('f').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const r = await fetch('/login', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ secret: document.getElementById('secret').value }) });
+      if (r.ok) location.href = '/';
+      else document.getElementById('err').textContent = 'Wrong passphrase';
+    });
+  </script>
+</body></html>
