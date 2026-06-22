@@ -5,7 +5,12 @@
 FROM --platform=linux/arm64 node:20-bookworm-slim@sha256:10fc5f5f33cba34a4befa58fcf95f724e67707fab7c32fb8cd3fcf90ebcc20df
 
 # OS deps: tmux (sessions), git + ripgrep (Claude Code), ca-certificates (TLS).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Force reliable DNS first: the LAN router (10.0.0.1, first nameserver) flakes
+# under apt's burst of parallel lookups ("Temporary failure resolving"). Pin
+# 8.8.8.8/1.1.1.1, force IPv4, and retry so the on-device build is deterministic.
+RUN printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > /etc/resolv.conf \
+    && apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=3 install -y --no-install-recommends \
       tmux git ripgrep ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -14,8 +19,10 @@ RUN useradd -m -u 1000 claude
 WORKDIR /app
 
 # App deps (node-pty prebuilt fetched here) + Claude Code CLI on PATH.
+# Same DNS pin for the registry fetches (each RUN gets a fresh resolv.conf).
 COPY package.json ./
-RUN npm install --no-audit --no-fund --omit=dev \
+RUN printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > /etc/resolv.conf \
+    && npm install --no-audit --no-fund --omit=dev \
     && npm install -g @anthropic-ai/claude-code
 
 COPY server ./server
