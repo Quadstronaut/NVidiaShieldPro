@@ -28,6 +28,7 @@ function authed(req, auth) {
 }
 
 export function createServer({ config, auth, deps }) {
+  const open = config.noAuth === true; // CLAUDE_TERM_NO_AUTH=1: serve open, no passphrase
   const server = http.createServer(async (req, res) => {
     const url = req.url.split('?')[0];
 
@@ -44,10 +45,13 @@ export function createServer({ config, auth, deps }) {
       res.writeHead(200, { 'set-cookie': `${COOKIE_NAME}=; HttpOnly; Path=/; Max-Age=0` });
       return res.end('{}');
     }
-    if (url === '/login') return serveStatic(req, res, PUBLIC); // GET login page
+    if (url === '/login') {
+      if (open) { res.writeHead(302, { location: '/' }); return res.end(); } // no login page when open
+      return serveStatic(req, res, PUBLIC); // GET login page
+    }
 
-    // --- everything else requires auth ---
-    const ok = authed(req, auth);
+    // --- everything else requires auth (unless open mode) ---
+    const ok = open || authed(req, auth);
     if (!ok) {
       if (url.startsWith('/api/')) return json(res, 401, { error: 'unauthorized' });
       res.writeHead(302, { location: '/login' });
@@ -80,7 +84,7 @@ export function createServer({ config, auth, deps }) {
   // --- WS upgrade: auth-gated (I1) ---
   const wss = new WebSocketServer({ noServer: true });
   server.on('upgrade', (req, socket, head) => {
-    if (!auth.valid(parseCookie(req.headers.cookie))) {
+    if (!open && !auth.valid(parseCookie(req.headers.cookie))) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       return socket.destroy();
     }

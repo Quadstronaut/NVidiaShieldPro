@@ -18,8 +18,12 @@ PORT=${CLAUDE_TERM_PORT:-7777}
 CTX=${CLAUDE_TERM_CTX:-/data/docker/claude-term}
 VOL=claude-home
 
-echo "=== fail-closed: secret must be set (I1) ==="
-[ -n "$CLAUDE_TERM_SECRET" ] || { echo "FATAL: CLAUDE_TERM_SECRET unset (source claude-term.env)"; exit 1; }
+# Auth: OPEN on the LAN by default (no passphrase), like shield-c2. To re-enable
+# the passphrase gate, set CLAUDE_TERM_NO_AUTH=0 and a CLAUDE_TERM_SECRET in the env.
+NO_AUTH=${CLAUDE_TERM_NO_AUTH:-1}
+if [ "$NO_AUTH" != "1" ] && [ -z "$CLAUDE_TERM_SECRET" ]; then
+  echo "FATAL: auth enabled but CLAUDE_TERM_SECRET unset"; exit 1
+fi
 [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || echo "WARN: CLAUDE_CODE_OAUTH_TOKEN empty — Claude will demand /login (R3)"
 
 echo "=== dockerd reachable? ==="
@@ -56,6 +60,7 @@ $DOCKER run -d \
   --restart=always \
   --network host \
   --group-add 3003 \
+  -e CLAUDE_TERM_NO_AUTH=$NO_AUTH \
   -e CLAUDE_TERM_PORT=$PORT \
   -e CLAUDE_TERM_SECRET="$CLAUDE_TERM_SECRET" \
   -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \

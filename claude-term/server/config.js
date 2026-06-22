@@ -14,13 +14,16 @@ export function loadConfig(env = process.env) {
     workspace: env.CLAUDE_TERM_WORKSPACE || '/data/claude',
     // Presence only matters to the launcher/Claude; the server passes it through.
     oauthToken: env.CLAUDE_CODE_OAUTH_TOKEN ?? '',
+    // Open mode: serve with NO passphrase gate (LAN-trusted, like shield-c2).
+    noAuth: env.CLAUDE_TERM_NO_AUTH === '1',
   };
 }
 
-// I1: refuse to start without a gate secret. Never silently serve an open shell.
+// Refuse to start without a gate secret — UNLESS open mode is explicitly set
+// (CLAUDE_TERM_NO_AUTH=1), in which case the app serves with no passphrase.
 export function assertConfig(cfg) {
-  if (!cfg.secret) {
-    throw new Error('CLAUDE_TERM_SECRET is required (fail-closed, I1) — refusing to start.');
+  if (!cfg.noAuth && !cfg.secret) {
+    throw new Error('CLAUDE_TERM_SECRET is required (or set CLAUDE_TERM_NO_AUTH=1) — refusing to start.');
   }
   return cfg;
 }
