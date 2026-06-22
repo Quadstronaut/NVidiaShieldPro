@@ -66,6 +66,7 @@ $DOCKER run -d \
   -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
   -e CLAUDE_TERM_WORKSPACE=/data/claude \
   -e CLAUDE_TERM_SNIPPETS=/data/claude/snippets.json \
+  -e HOME=/home/claude \
   -v /data/claude:/data/claude \
   -v $VOL:/home/claude/.claude \
   $IMG
