@@ -30,6 +30,7 @@ Conventions across the launchers:
 |---|---|
 | `kuma-netfix.sh`, `kuma-recreate.sh` | Uptime-Kuma (`:3001`); the netfix adds `NET_RAW` + Android net groups so ICMP monitors work. |
 | `c2.sh`, `c2-redeploy.sh` | `shield-c2` dashboard (`:8888`) build + run, and redeploy. |
+| `claude-term.sh`, `claude-term-build.sh` | `claude-term` web terminal (`:7777`) — phone-driven Claude Code in tmux. Whole-`/home/claude` volume for persistent Claude state + an idempotent first-run seed; reads `CLAUDE_TERM_SECRET` + `CLAUDE_CODE_OAUTH_TOKEN` from an untracked `claude-term.env`. Built run+commit (`docker build` has no host net here). See [`../docs/claude-term-bringup-notes.md`](../docs/claude-term-bringup-notes.md). |
 
 ### Networking investigation
 `netcheck.sh`, `net-test.sh`, `net-diag.sh`, `net-diag2.sh`, `net-diag3.sh`, `route-diag.sh`, `apply-routes.sh`, `conn-matrix.sh`, `l2-diag.sh`, `brport-test.sh`, `port-test2.sh` — the layered diagnostics that established that bridge/veth networking is dead on this Tegra 4.9 kernel (ARP INCOMPLETE across `docker0`) and that `--network host` is the working mode.
