@@ -12,10 +12,27 @@
     <select id="newdir" aria-label="working dir"></select>
     <button id="create">＋ new</button>
     <button id="kill">🗑</button>
+    <button id="prompts" aria-haspopup="true" aria-expanded="false">⌨ Prompts ▾</button>
     <button id="logout">logout</button>
   </header>
-  <div id="chips"></div>
+
+  <!-- Snippet chips live in a floating panel so the TTY keeps full height; the
+       panel opens over the terminal on demand instead of stealing a row. -->
+  <div id="prompts-panel" role="menu" hidden><div id="chips"></div></div>
+
   <div id="term"></div>
+
+  <!-- Surfaced when a Claude OAuth login URL is detected in the TTY stream — the
+       wrapped link can't be tapped/copied directly on the tmux->browser path. -->
+  <div id="login-banner" hidden>
+    <span class="lb-title">🔑 Login link detected</span>
+    <a id="lb-open" class="lb-btn lb-primary" target="_blank" rel="noopener">Open ↗</a>
+    <button id="lb-copy" class="lb-btn">Copy</button>
+    <input id="lb-code" placeholder="paste code" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button id="lb-send" class="lb-btn">Send</button>
+    <button id="lb-dismiss" class="lb-btn" aria-label="dismiss">✕</button>
+  </div>
+
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="/vendor/xterm.js"></script>
   <script src="/vendor/addon-fit.js"></script>

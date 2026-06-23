@@ -1,14 +1,46 @@
 * { box-sizing: border-box; }
-body { margin: 0; background: #0b0f14; color: #d6deeb; font-family: system-ui, sans-serif; }
-header { display: flex; gap: 6px; padding: 6px; flex-wrap: wrap; align-items: center; background: #11161d; }
-header select, header input, header button { background: #1b2430; color: #d6deeb; border: 1px solid #2a3645; border-radius: 6px; padding: 6px 8px; font-size: 14px; }
-#chips { display: flex; gap: 6px; padding: 6px; flex-wrap: wrap; background: #0e131a; }
-.chip { background: #20303f; border: 1px solid #2f4256; border-radius: 16px; padding: 6px 12px; color: #cfe3ff; font-size: 13px; }
+html, body { height: 100%; }
+/* Flex column so #term fills whatever the header leaves — robust to the header
+   wrapping to two rows on narrow phones (the old `100vh - 92px` magic number
+   under-/over-shot whenever the header wrapped). */
+body { margin: 0; background: #0b0f14; color: #d6deeb; font-family: system-ui, sans-serif;
+       display: flex; flex-direction: column; height: 100vh; }
+[hidden] { display: none !important; }
+
+header { display: flex; gap: 6px; padding: 6px; flex-wrap: wrap; align-items: center;
+         background: #11161d; flex: 0 0 auto; }
+header select, header input, header button { background: #1b2430; color: #d6deeb;
+         border: 1px solid #2a3645; border-radius: 6px; padding: 6px 8px; font-size: 14px; }
+#prompts { background: #20303f; border-color: #2f4256; color: #cfe3ff; }
+#prompts[aria-expanded="true"] { background: #2f4d66; }
+
+#term { flex: 1 1 auto; min-height: 0; padding: 4px; }
+
+/* Floating Prompts overlay: fixed, anchored under the header by JS at open. */
+#prompts-panel { position: fixed; right: 6px; z-index: 30;
+  background: #0e131a; border: 1px solid #2a3645; border-radius: 10px;
+  padding: 8px; max-width: min(380px, 92vw);
+  box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+#chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { background: #20303f; border: 1px solid #2f4256; border-radius: 16px;
+        padding: 6px 12px; color: #cfe3ff; font-size: 13px; }
 .chip:active { background: #2f4d66; }
 /* tap feedback: green = injected, red = no session. flash() clears after 600ms. */
 .chip.chip-ok { background: #1f6f43; border-color: #2ea968; color: #eafff3; }
 .chip.chip-err { background: #6f2230; border-color: #b3445a; color: #ffe3e8; }
-#term { padding: 4px; height: calc(100vh - 92px); }
+
+/* Login link banner — floats below the header, centered. top set by JS on show. */
+#login-banner { position: fixed; top: 52px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap; z-index: 40;
+  background: #16202c; border: 1px solid #3a5168; border-radius: 10px;
+  padding: 8px 12px; max-width: 94vw; box-shadow: 0 8px 24px rgba(0,0,0,.55); }
+#login-banner .lb-title { font-size: 13px; color: #cfe3ff; }
+.lb-btn { background: #20303f; border: 1px solid #2f4256; border-radius: 8px;
+  padding: 6px 10px; color: #cfe3ff; font-size: 13px; text-decoration: none; cursor: pointer; }
+.lb-btn.lb-primary { background: #1f6f43; border-color: #2ea968; color: #eafff3; }
+#lb-code { background: #1b2430; color: #d6deeb; border: 1px solid #2a3645;
+  border-radius: 8px; padding: 6px 8px; font-size: 13px; width: 130px; }
+
 #toast {
   position: fixed; left: 50%; bottom: 16px;
   transform: translateX(-50%) translateY(20px);
