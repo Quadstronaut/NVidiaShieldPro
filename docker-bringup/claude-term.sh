@@ -2,7 +2,11 @@
 # Bring up claude-term: phone-driven Claude Code web terminal on the Shield,
 # port 7777 (D5). Host networking (bridge dead on this kernel, I4) -> reachable
 # at http://10.0.0.88:7777. Workspace /data/claude is the ONLY writable host
-# mount besides the ~/.claude creds volume (I2); NO docker socket (I9).
+# mount besides the claude-home volume (I2); NO docker socket (I9).
+# claude-home maps the WHOLE container home (/home/claude), not just .claude/,
+# so runtime state outside the dir -- ~/.claude.json (onboarding flag, theme,
+# auth/account) -- survives container restarts. Steering lives at
+# /home/claude/.claude inside the same volume.
 # Secret + OAuth token come from a sourced untracked claude-term.env (I11).
 # --restart=always = returns when dockerd does. Idempotent: re-run replaces it.
 set -e
@@ -54,7 +58,7 @@ mkdir -p /data/claude
 chown 1000:1000 /data/claude 2>/dev/null || true
 chmod 755 /data/claude
 
-echo "=== run $NAME (host net, rw /data/claude + creds vol, NO socket, port $PORT) ==="
+echo "=== run $NAME (host net, rw /data/claude + home vol, NO socket, port $PORT) ==="
 $DOCKER run -d \
   --name $NAME \
   --restart=always \
@@ -68,8 +72,17 @@ $DOCKER run -d \
   -e CLAUDE_TERM_SNIPPETS=/data/claude/snippets.json \
   -e HOME=/home/claude \
   -v /data/claude:/data/claude \
-  -v $VOL:/home/claude/.claude \
+  -v $VOL:/home/claude \
   $IMG
+
+# Seed claude-code's first-run state into the persistent ~/.claude.json so a
+# fresh/re-provisioned home volume never re-triggers the theme picker, trust
+# dialog, or bypass-permissions prompt (none of which are answerable on the
+# tmux->browser->mobile path). IDEMPOTENT: only fills MISSING keys, never
+# clobbers the user's later choices. Version-sensitive (claude-code field
+# names) -> guarded; a no-op just means a one-time prompt, not a failure.
+echo "=== seed first-run state into ~/.claude.json (idempotent) ==="
+$DOCKER exec $NAME node -e 'const fs=require("fs"),p="/home/claude/.claude.json";let c={};try{c=JSON.parse(fs.readFileSync(p))}catch(e){}let ch=false;if(!c.hasCompletedOnboarding){c.hasCompletedOnboarding=true;ch=true}if(!c.theme){c.theme="dark-ansi";ch=true}if(!c.bypassPermissionsModeAccepted){c.bypassPermissionsModeAccepted=true;ch=true}c.projects=c.projects||{};const dirs=["/data/claude"];try{for(const d of fs.readdirSync("/data/claude/GIT"))dirs.push("/data/claude/GIT/"+d)}catch(e){}for(const d of dirs){if(!c.projects[d]||!c.projects[d].hasTrustDialogAccepted){c.projects[d]=Object.assign({},c.projects[d]||{},{hasTrustDialogAccepted:true});ch=true}}if(ch){fs.writeFileSync(p,JSON.stringify(c,null,2));console.log("seeded")}else{console.log("already seeded")}' 2>/dev/null || echo "  (seed skipped: node/exec unavailable)"
 
 echo "=== container state ==="
 $DOCKER ps --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
