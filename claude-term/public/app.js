@@ -1,192 +1,283 @@
-const term = new window.Terminal({ cursorBlink: true, fontSize: 14 });
-const fit = new window.FitAddon.FitAddon();
-term.loadAddon(fit);
-term.open(document.getElementById('term'));
+/* claude-term v2 client — renders Claude Code's headless event stream as a
+   legible, native, phone-first conversation. No terminal: assistant text is
+   markdown, tool calls are collapsible cards, edits are diffs. One WebSocket per
+   attached session; the server fans the same stream to every device on it. */
+'use strict';
 
-let ws = null;
 const $ = (id) => document.getElementById(id);
+const elSessions = $('sessions'), elTranscript = $('transcript'), elInput = $('input');
+const elSend = $('send'), elStop = $('stop'), elPrompts = $('prompts'), elPromptsBtn = $('promptsBtn');
+const stModel = $('st-model'), stCtx = $('st-ctx'), stCost = $('st-cost'), stRun = $('st-run');
 
-// Keep xterm sized to its container and the remote PTY in step. The terminal
-// used to render at xterm's default 80x24 (≈a quarter of the screen) because the
-// one-shot fit ran before #term had its real layout, and tmux then inherited it.
-// Re-fit on a frame, on any container resize, and on every reconnect.
-function syncFit() {
-  try { fit.fit(); } catch { /* container not laid out yet */ }
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+let ws = null;            // current WebSocket
+let sessionId = null;     // attached session id
+let openBubble = null;    // the in-progress assistant text bubble (streaming target)
+let liveBuffer = '';      // accumulated streaming text for the open bubble
+let toolCards = {};       // tool_use id -> {details, input, name}
+let sessionCost = 0;      // accumulated $ for the footer
+let wantReconnect = false;
+
+/* ---------------- safe markdown (escape first, protect code) ----------------
+   Inline code and fenced blocks are replaced with NUL-delimited sentinels
+   () before the bold/italic/link passes, then restored — so ordinary
+   numbers in the text are never mistaken for placeholders. */
+const C0 = '';
+function esc(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function inlineMd(t) {
+  const codes = [];
+  t = t.replace(/`([^`]+)`/g, (m, c) => C0 + 'c' + (codes.push('<code>' + c + '</code>') - 1) + C0);
+  t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  t = t.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  return t.replace(new RegExp(C0 + 'c(\\d+)' + C0, 'g'), (m, i) => codes[+i]);
+}
+function renderMarkdown(src) {
+  const fences = [];
+  src = src.replace(/```(\w*)\n?([\s\S]*?)```/g, (m, lang, code) =>
+    '\n' + C0 + 'f' + (fences.push('<pre><code>' + esc(code.replace(/\n$/, '')) + '</code></pre>') - 1) + C0 + '\n');
+  const fenceLine = new RegExp('^' + C0 + 'f(\\d+)' + C0 + '$');
+  const lines = src.split('\n');
+  let html = '', list = null; // list = 'ul' | 'ol' | null
+  const closeList = () => { if (list) { html += '</' + list + '>'; list = null; } };
+  let para = [];
+  const flushPara = () => { if (para.length) { html += '<p>' + inlineMd(esc(para.join(' '))) + '</p>'; para = []; } };
+  for (const line of lines) {
+    const fence = line.match(fenceLine);
+    if (fence) { flushPara(); closeList(); html += fences[+fence[1]]; continue; }
+    if (!line.trim()) { flushPara(); closeList(); continue; }
+    const h = line.match(/^(#{1,3})\s+(.*)$/);
+    if (h) { flushPara(); closeList(); html += '<h' + h[1].length + '>' + inlineMd(esc(h[2])) + '</h' + h[1].length + '>'; continue; }
+    const ul = line.match(/^\s*[-*]\s+(.*)$/);
+    const ol = line.match(/^\s*\d+\.\s+(.*)$/);
+    if (ul || ol) {
+      flushPara();
+      const want = ul ? 'ul' : 'ol';
+      if (list !== want) { closeList(); html += '<' + want + '>'; list = want; }
+      html += '<li>' + inlineMd(esc((ul || ol)[1])) + '</li>'; continue;
+    }
+    closeList(); para.push(line);
+  }
+  flushPara(); closeList();
+  return html;
+}
+
+/* ---------------- diff (common prefix/suffix, mark the middle) ---------------- */
+function lineDiff(oldStr, newStr) {
+  const o = String(oldStr ?? '').split('\n'), n = String(newStr ?? '').split('\n');
+  let p = 0; while (p < o.length && p < n.length && o[p] === n[p]) p++;
+  let s = 0; while (s < o.length - p && s < n.length - p && o[o.length - 1 - s] === n[n.length - 1 - s]) s++;
+  const rows = [];
+  for (let i = 0; i < p; i++) rows.push(['ctx', o[i]]);
+  for (let i = p; i < o.length - s; i++) rows.push(['del', o[i]]);
+  for (let i = p; i < n.length - s; i++) rows.push(['add', n[i]]);
+  for (let i = o.length - s; i < o.length; i++) rows.push(['ctx', o[i]]);
+  return rows;
+}
+function diffHtml(file, oldStr, newStr) {
+  const rows = lineDiff(oldStr, newStr).slice(0, 400);
+  const body = rows.map(([k, t]) => {
+    const sign = k === 'add' ? '+' : k === 'del' ? '-' : ' ';
+    return '<span class="row ' + (k === 'ctx' ? '' : k) + '">' + esc(sign + ' ' + t) + '</span>';
+  }).join('');
+  return '<div class="diff"><div class="file">' + esc(file || 'edit') + '</div>' + body + '</div>';
+}
+
+/* ---------------- tool summaries ---------------- */
+function short(s, n = 120) { s = String(s); return s.length > n ? s.slice(0, n) + '…' : s; }
+function toolSummary(name, i) {
+  i = i || {};
+  switch (name) {
+    case 'Bash': return short(i.command || '');
+    case 'Read': case 'Edit': case 'Write': case 'NotebookEdit': return short(i.file_path || i.notebook_path || '');
+    case 'Glob': return short(i.pattern || '');
+    case 'Grep': return short((i.pattern || '') + (i.path ? ' in ' + i.path : ''));
+    case 'Task': return short(i.description || i.subagent_type || '');
+    case 'WebFetch': return short(i.url || '');
+    case 'WebSearch': return short(i.query || '');
+    default: return short(Object.keys(i).map((k) => k + '=' + short(String(i[k]), 30)).join(' '));
   }
 }
-requestAnimationFrame(syncFit);
-new ResizeObserver(syncFit).observe(document.getElementById('term'));
 
-// Transient UI feedback so taps never feel dead (the chips used to no-op silently).
-function flash(el, cls) {
-  el.classList.add(cls);
-  setTimeout(() => el.classList.remove(cls), 600);
+/* ---------------- transcript rendering ---------------- */
+function atBottom() { return elTranscript.scrollHeight - elTranscript.scrollTop - elTranscript.clientHeight < 80; }
+function scroll() { elTranscript.scrollTop = elTranscript.scrollHeight; }
+function clearEmpty() { const e = elTranscript.querySelector('.empty'); if (e) e.remove(); }
+function append(node) { const stick = atBottom(); clearEmpty(); elTranscript.appendChild(node); if (stick) scroll(); }
+
+function addUser(text) {
+  const d = document.createElement('div'); d.className = 'msg user'; d.textContent = text; append(d);
 }
-let toastTimer = null;
-function toast(msg, isErr) {
-  const t = $('toast');
-  t.textContent = msg;
-  t.classList.toggle('err', !!isErr);
-  t.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+function ensureBubble() {
+  if (!openBubble) {
+    openBubble = document.createElement('div');
+    openBubble.className = 'msg assistant';
+    openBubble.innerHTML = '<div class="md streaming"></div>';
+    liveBuffer = '';
+    append(openBubble);
+  }
+  return openBubble.querySelector('.md');
+}
+function appendDelta(text) {
+  const md = ensureBubble(); liveBuffer += text;
+  md.innerHTML = renderMarkdown(liveBuffer); md.classList.add('streaming');
+  if (atBottom()) scroll();
+}
+function sealAssistant(text) {
+  const md = ensureBubble(); // creates a bubble if a tool-first turn streamed nothing
+  md.innerHTML = renderMarkdown(text); md.classList.remove('streaming');
+  openBubble = null; liveBuffer = '';
+  if (atBottom()) scroll();
+}
+function addThinking(text) {
+  const d = document.createElement('details'); d.className = 'msg think';
+  d.innerHTML = '<summary>💭 thought</summary><div class="md">' + renderMarkdown(text) + '</div>';
+  append(d);
+}
+function addToolUse(id, name, input) {
+  openBubble = null; // any streaming text block is done once a tool is invoked
+  const d = document.createElement('details'); d.className = 'tool running'; d.dataset.id = id;
+  const sum = toolSummary(name, input);
+  d.innerHTML = '<summary><span class="dot">⏺</span><span class="tname">' + esc(name) +
+    '</span><span class="tsum">' + esc(sum) + '</span></summary><div class="body"></div>';
+  const body = d.querySelector('.body');
+  if (name === 'Edit' && input) body.innerHTML = diffHtml(input.file_path, input.old_string, input.new_string);
+  else if (name === 'Write' && input) body.innerHTML = diffHtml(input.file_path, '', input.content);
+  else body.innerHTML = '<div class="label">input</div><pre>' + esc(JSON.stringify(input, null, 2)) + '</pre>';
+  toolCards[id] = { details: d, name, input };
+  append(d);
+}
+function fillToolResult(id, content, isError) {
+  const card = toolCards[id]; if (!card) return;
+  const d = card.details; d.classList.remove('running'); if (isError) d.classList.add('err');
+  const out = document.createElement('div');
+  out.innerHTML = '<div class="label">' + (isError ? 'error' : 'result') + '</div><pre>' + esc(short(content || '', 6000)) + '</pre>';
+  d.querySelector('.body').appendChild(out);
+  if (atBottom()) scroll();
+}
+function addError(message) {
+  const d = document.createElement('div'); d.className = 'msg error'; d.textContent = message; append(d);
 }
 
-async function api(path, opts) {
-  const r = await fetch(path, opts);
-  if (r.status === 401) { location.href = '/login'; throw new Error('unauth'); }
-  return r;
-}
-
-async function refreshSessions() {
-  const list = await (await api('/api/sessions')).json();
-  $('sessions').innerHTML = list.map((s) => `<option value="${s.name}">${s.name} (${s.cwd || '?'})</option>`).join('');
-}
-
-async function refreshDirs() {
-  const dirs = await (await api('/api/dirs')).json();
-  $('newdir').innerHTML = dirs.map((d) => `<option value="${d}">${d}</option>`).join('');
-}
-
-// ---- Prompts overlay -------------------------------------------------------
-// Chips float over the terminal so the TTY keeps full height — it only ever
-// loses the header row, never a chips row. Opening anchors the panel just below
-// the header (whose height varies when it wraps on narrow phones).
-function promptsOpen() { return !$('prompts-panel').hasAttribute('hidden'); }
-function openPrompts() {
-  const panel = $('prompts-panel');
-  panel.style.top = document.querySelector('header').getBoundingClientRect().bottom + 'px';
-  panel.removeAttribute('hidden');
-  $('prompts').setAttribute('aria-expanded', 'true');
-}
-function closePrompts() {
-  $('prompts-panel').setAttribute('hidden', '');
-  $('prompts').setAttribute('aria-expanded', 'false');
-}
-function togglePrompts() { promptsOpen() ? closePrompts() : openPrompts(); }
-
-async function loadChips() {
-  const chips = await (await api('/api/snippets')).json();
-  $('chips').innerHTML = '';
-  for (const c of chips) {
-    const b = document.createElement('button');
-    b.textContent = c.label;
-    b.className = 'chip';
-    b.addEventListener('click', () => {
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        flash(b, 'chip-err');
-        toast('No session connected — create or pick one first', true);
-        return;
-      }
-      const ESC = '\x1b';
-      const payload = `${ESC}[200~${c.body}${ESC}[201~` + (c.submit ? '\r' : '');
-      ws.send(JSON.stringify({ type: 'data', data: payload }));
-      term.focus();
-      flash(b, 'chip-ok');
-      toast(c.submit ? `Sent + submitted: ${c.label}` : `Inserted: ${c.label}`, false);
-      closePrompts(); // give the TTY back its full height after a pick
-    });
-    $('chips').appendChild(b);
+/* ---------------- status footer ---------------- */
+function setStatus(ev) {
+  if (ev.model) stModel.textContent = ev.model;
+  if (typeof ev.contextLeftPct === 'number') stCtx.textContent = 'ctx ' + ev.contextLeftPct + '%';
+  if (typeof ev.running === 'boolean') {
+    stRun.textContent = ev.running ? '✻ working…' : '';
+    elSend.classList.toggle('hidden', ev.running);
+    elStop.classList.toggle('hidden', !ev.running);
   }
 }
 
-// ---- Login-link detector ---------------------------------------------------
-// Claude prints its OAuth URL into the TTY where it soft-wraps and can't be
-// tapped or copied. Buffer recent output, strip ANSI, rejoin the wrap-broken
-// URL pieces, and surface the whole link as Open/Copy plus a paste-code box for
-// the step where Claude asks you to paste the auth code back.
-const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g; // strip CSI/SGR (colors, cursor moves)
-const URLCH = "A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-";
-const JOIN_WRAP = new RegExp(`([${URLCH}])[\\r\\n]+(?=[${URLCH}])`, 'g');
-const LOGIN_URL = /https:\/\/(?:claude\.ai\/oauth[^\s'"]*|(?:console|auth)\.anthropic\.com\/[^\s'"]*)/i;
-let outBuf = '';
-let lastLoginUrl = '';
-function scanForLogin(chunk) {
-  outBuf = (outBuf + chunk).slice(-8192);
-  const clean = outBuf.replace(ANSI, '').replace(JOIN_WRAP, '$1');
-  const m = clean.match(LOGIN_URL);
-  if (!m) return;
-  const url = m[0].replace(/[)\].,;]+$/, ''); // trim trailing prose punctuation
-  if (url !== lastLoginUrl) { lastLoginUrl = url; showLogin(url); }
+/* ---------------- event dispatch ---------------- */
+function handle(ev) {
+  switch (ev.type) {
+    case 'attached': break;
+    case 'status': setStatus(ev); break;
+    case 'user_message': addUser(ev.text); break;
+    case 'assistant_delta': if (ev.text && !ev.thinking) appendDelta(ev.text); break;
+    case 'assistant_message': sealAssistant(ev.text); break;
+    case 'assistant_thinking': addThinking(ev.text); break;
+    case 'tool_use': addToolUse(ev.id, ev.name, ev.input); break;
+    case 'tool_result': fillToolResult(ev.id, ev.content, ev.isError); break;
+    case 'result':
+      if (typeof ev.costUsd === 'number') { sessionCost += ev.costUsd; stCost.textContent = '$' + sessionCost.toFixed(4); }
+      if (typeof ev.contextLeftPct === 'number') stCtx.textContent = 'ctx ' + ev.contextLeftPct + '%';
+      break;
+    case 'error': addError(ev.message); break;
+  }
 }
-function showLogin(url) {
-  const b = $('login-banner');
-  $('lb-open').href = url;
-  b.dataset.url = url;
-  b.style.top = (document.querySelector('header').getBoundingClientRect().bottom + 8) + 'px';
-  b.removeAttribute('hidden');
-  toast('Claude login link detected', false);
-}
-function hideLogin() { $('login-banner').setAttribute('hidden', ''); }
 
-// ---- terminal <-> ws -------------------------------------------------------
-function connect(name) {
-  if (ws) ws.close();
-  outBuf = ''; lastLoginUrl = ''; hideLogin();
+/* ---------------- websocket ---------------- */
+function connect(id) {
+  if (ws) { wantReconnect = false; try { ws.close(); } catch (e) {} }
+  sessionId = id; openBubble = null; liveBuffer = ''; toolCards = {}; sessionCost = 0;
+  elTranscript.innerHTML = ''; stCost.textContent = ''; stCtx.textContent = '';
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws?session=${encodeURIComponent(name)}`);
-  ws.onmessage = (ev) => {
-    const m = JSON.parse(ev.data);
-    if (m.type === 'data') { term.write(m.data); scanForLogin(m.data); }
-  };
-  ws.onopen = () => { requestAnimationFrame(syncFit); };
+  ws = new WebSocket(proto + '://' + location.host + '/ws?session=' + encodeURIComponent(id));
+  wantReconnect = true;
+  ws.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch (err) {} };
+  ws.onclose = () => { if (wantReconnect && sessionId === id) setTimeout(() => { if (sessionId === id) connect(id); }, 1500); };
 }
 
-term.onData((d) => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'data', data: d })); });
-window.addEventListener('resize', syncFit);
+/* ---------------- sending ---------------- */
+function send(text) {
+  text = (text ?? elInput.value).trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'user_message', text }));
+  elInput.value = ''; autosize();
+}
+function interrupt() { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'interrupt' })); }
 
-// header controls
-$('sessions').addEventListener('change', (e) => connect(e.target.value));
-$('refresh').addEventListener('click', refreshSessions);
-$('create').addEventListener('click', async () => {
-  const name = $('newname').value, cwd = $('newdir').value;
-  const r = await api('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, cwd }) });
-  if (r.ok) { await refreshSessions(); $('sessions').value = name; connect(name); }
-  else alert((await r.json()).error || 'create failed');
-});
-$('kill').addEventListener('click', async () => {
-  const name = $('sessions').value; if (!name) return;
-  await api(`/api/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' });
-  await refreshSessions();
-});
-$('logout').addEventListener('click', async () => { await fetch('/logout', { method: 'POST' }); location.href = '/login'; });
-
-// prompts overlay controls — stopPropagation so the document handler below
-// doesn't immediately re-close it; outside-tap and Escape both dismiss.
-$('prompts').addEventListener('click', (e) => { e.stopPropagation(); togglePrompts(); });
-document.addEventListener('click', (e) => {
-  if (promptsOpen() && !$('prompts-panel').contains(e.target) && e.target !== $('prompts')) closePrompts();
-});
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePrompts(); });
-
-// login banner controls
-$('lb-copy').addEventListener('click', async () => {
-  const url = $('login-banner').dataset.url || '';
-  try {
-    await navigator.clipboard.writeText(url);
-    toast('Login URL copied', false);
-  } catch {
-    const ta = document.createElement('textarea');
-    ta.value = url; document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); toast('Login URL copied', false); }
-    catch { toast('Copy failed — long-press the link instead', true); }
-    ta.remove();
+/* ---------------- sessions ---------------- */
+async function loadSessions(select) {
+  const list = await fetch('/api/sessions').then((r) => r.json()).catch(() => []);
+  elSessions.innerHTML = '';
+  if (!list.length) { const o = document.createElement('option'); o.textContent = '— no sessions —'; o.value = ''; elSessions.appendChild(o); }
+  for (const s of list) {
+    const o = document.createElement('option'); o.value = s.id;
+    const tag = (s.clients ? ' 👁' + s.clients : '') + (s.running ? ' ✻' : '');
+    o.textContent = s.title + tag;
+    elSessions.appendChild(o);
   }
-});
-$('lb-send').addEventListener('click', () => {
-  const code = $('lb-code').value.trim();
-  if (!code) return;
-  if (!ws || ws.readyState !== WebSocket.OPEN) { toast('No session connected', true); return; }
-  ws.send(JSON.stringify({ type: 'data', data: code + '\r' }));
-  $('lb-code').value = '';
-  toast('Code sent to Claude', false);
-  hideLogin();
-});
-$('lb-dismiss').addEventListener('click', hideLogin);
+  if (select) elSessions.value = select;
+  if (elSessions.value) connect(elSessions.value);
+}
+async function newSession() {
+  const dirs = await fetch('/api/dirs').then((r) => r.json()).catch(() => ['/data/claude']);
+  let cwd = dirs[0];
+  if (dirs.length > 1) {
+    const pick = prompt('Working dir:\n' + dirs.map((d, i) => i + ': ' + d).join('\n'), '0');
+    if (pick === null) return;
+    cwd = dirs[+pick] || dirs[0];
+  }
+  const r = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cwd }) });
+  if (!r.ok) { addError('could not create session'); return; }
+  const { id } = await r.json();
+  await loadSessions(id);
+  elInput.focus();
+}
+async function delSession() {
+  const id = elSessions.value; if (!id) return;
+  if (!confirm('Delete this session and its transcript?')) return;
+  await fetch('/api/sessions/' + encodeURIComponent(id), { method: 'DELETE' });
+  wantReconnect = false; sessionId = null; if (ws) try { ws.close(); } catch (e) {}
+  elTranscript.innerHTML = '<div class="empty">Pick or start a session.</div>';
+  await loadSessions();
+}
 
-(async () => {
-  await Promise.all([refreshSessions(), refreshDirs(), loadChips()]);
-  if ($('sessions').value) connect($('sessions').value);
-})();
+/* ---------------- prompts (snippet chips) ---------------- */
+async function loadPrompts() {
+  const chips = await fetch('/api/snippets').then((r) => r.json()).catch(() => []);
+  elPrompts.innerHTML = '';
+  for (const c of chips) {
+    const b = document.createElement('button'); b.textContent = c.label;
+    b.onclick = () => {
+      if (c.submit) send(c.body);
+      else { elInput.value = c.body + (elInput.value ? '\n' + elInput.value : ''); autosize(); elInput.focus(); }
+    };
+    elPrompts.appendChild(b);
+  }
+}
+
+/* ---------------- composer wiring ---------------- */
+function autosize() {
+  elInput.style.height = 'auto';
+  elInput.style.height = Math.min(elInput.scrollHeight, window.innerHeight * 0.4) + 'px';
+  elSend.disabled = !elInput.value.trim();
+}
+elInput.addEventListener('input', autosize);
+elInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+elSend.onclick = () => send();
+elStop.onclick = interrupt;
+$('new').onclick = newSession;
+$('del').onclick = delSession;
+$('refresh').onclick = () => loadSessions(elSessions.value);
+elSessions.onchange = () => { if (elSessions.value) connect(elSessions.value); };
+elPromptsBtn.onclick = () => { elPrompts.classList.toggle('hidden'); elPromptsBtn.classList.toggle('on'); };
+
+/* ---------------- boot ---------------- */
+loadPrompts();
+loadSessions();

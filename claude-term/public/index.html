@@ -1,40 +1,36 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<html lang="en"><head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#1a1714" />
 <title>claude-term</title>
-<link rel="stylesheet" href="/vendor/xterm.css" />
-<link rel="stylesheet" href="/style.css" /></head>
-<body>
-  <header>
-    <select id="sessions" aria-label="sessions"></select>
-    <button id="refresh">⟳</button>
-    <input id="newname" placeholder="name" maxlength="32" />
-    <select id="newdir" aria-label="working dir"></select>
-    <button id="create">＋ new</button>
-    <button id="kill">🗑</button>
-    <button id="prompts" aria-haspopup="true" aria-expanded="false">⌨ Prompts ▾</button>
-    <button id="logout">logout</button>
+<link rel="icon" href="data:," />
+<link rel="stylesheet" href="/style.css" />
+</head><body>
+  <header id="bar">
+    <select id="sessions" title="sessions"></select>
+    <button id="refresh" title="refresh">⟳</button>
+    <button id="new" title="new session">＋</button>
+    <button id="del" title="delete session">🗑</button>
   </header>
 
-  <!-- Snippet chips live in a floating panel so the TTY keeps full height; the
-       panel opens over the terminal on demand instead of stealing a row. -->
-  <div id="prompts-panel" role="menu" hidden><div id="chips"></div></div>
+  <main id="transcript"><div class="empty">Pick or start a session.</div></main>
 
-  <div id="term"></div>
-
-  <!-- Surfaced when a Claude OAuth login URL is detected in the TTY stream — the
-       wrapped link can't be tapped/copied directly on the tmux->browser path. -->
-  <div id="login-banner" hidden>
-    <span class="lb-title">🔑 Login link detected</span>
-    <a id="lb-open" class="lb-btn lb-primary" target="_blank" rel="noopener">Open ↗</a>
-    <button id="lb-copy" class="lb-btn">Copy</button>
-    <input id="lb-code" placeholder="paste code" autocomplete="off" autocapitalize="off" spellcheck="false" />
-    <button id="lb-send" class="lb-btn">Send</button>
-    <button id="lb-dismiss" class="lb-btn" aria-label="dismiss">✕</button>
+  <div id="status">
+    <span id="st-model">—</span>
+    <span id="st-ctx"></span>
+    <span id="st-cost"></span>
+    <span id="st-run" class="live"></span>
   </div>
 
-  <div id="toast" role="status" aria-live="polite"></div>
-  <script src="/vendor/xterm.js"></script>
-  <script src="/vendor/addon-fit.js"></script>
+  <div id="prompts" class="hidden"></div>
+
+  <footer id="composer">
+    <button id="promptsBtn" title="prompts">⌨</button>
+    <textarea id="input" rows="1" placeholder="Message Claude…" enterkeyhint="send"></textarea>
+    <button id="send" title="send" disabled>↑</button>
+    <button id="stop" class="hidden" title="interrupt">■</button>
+  </footer>
+
   <script src="/app.js"></script>
 </body></html>

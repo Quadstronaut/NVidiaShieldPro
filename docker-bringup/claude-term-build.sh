@@ -36,15 +36,15 @@ $DK cp "$CTX/server"        ct-build:/app/server
 $DK cp "$CTX/public"        ct-build:/app/public
 $DK cp "$CTX/snippets.json" ct-build:/app/snippets.json
 
-echo "== npm: app deps (node-pty arm64 prebuilt) + claude-code CLI =="
-$DK exec -w /app ct-build sh -c 'printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf && npm install --no-audit --no-fund --omit=dev && npm install -g @anthropic-ai/claude-code'
+echo "== npm: app deps (ws only — v2 dropped node-pty/xterm) + claude-code CLI (pinned, R5) =="
+$DK exec -w /app ct-build sh -c 'printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf && npm install --no-audit --no-fund --omit=dev && npm install -g @anthropic-ai/claude-code@2.1.185'
 
 echo "== ownership =="
 $DK exec ct-build sh -c 'chown -R claude:claude /app /home/claude /data/claude'
 
-echo "== verify: claude + tmux on PATH, node-pty native binding loads (R2) =="
-$DK exec -w /app ct-build node -e 'require("@homebridge/node-pty-prebuilt-multiarch"); console.log("NODE_PTY_OK")'
-$DK exec ct-build sh -c 'which claude && which tmux'
+echo "== verify: claude headless drives the v2 UI; node server parses =="
+$DK exec ct-build sh -c 'which claude && claude --version'
+$DK exec -w /app ct-build node --check server/index.js && echo SERVER_PARSE_OK
 
 echo "== commit -> claude-term:latest =="
 $DK commit \
