@@ -1,17 +1,14 @@
 {
   "name": "claude-term",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "LAN-only phone-driven web terminal for Claude Code sessions on the NVIDIA Shield.",
+  "description": "LAN-only phone-first native Claude Code UI for the NVIDIA Shield (headless-driven, not a terminal).",
   "scripts": {
     "start": "node server/index.js",
     "test": "node --test"
   },
   "dependencies": {
-    "@homebridge/node-pty-prebuilt-multiarch": "^0.12.0",
-    "@xterm/addon-fit": "^0.10.0",
-    "@xterm/xterm": "^5.5.0",
     "ws": "^8.18.0"
   }
 }

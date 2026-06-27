@@ -3,19 +3,13 @@ import path from 'node:path';
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
-// Vendored xterm dist served from node_modules so we ship no bundler.
-const VENDOR = {
-  '/vendor/xterm.js': '@xterm/xterm/lib/xterm.js',
-  '/vendor/xterm.css': '@xterm/xterm/css/xterm.css',
-  '/vendor/addon-fit.js': '@xterm/addon-fit/lib/addon-fit.js',
-};
-
-export async function serveStatic(req, res, publicDir, nodeModules = path.resolve('node_modules')) {
-  if (req.method && req.method !== 'GET') return false; // FIX 6: static files GET-only
+// v2 ships a dependency-free client (compact markdown + line-diff in app.js), so
+// there is no vendored bundle to serve — the xterm dist is gone with the terminal.
+export async function serveStatic(req, res, publicDir) {
+  if (req.method && req.method !== 'GET') return false; // static files GET-only (inherited FIX 6)
   const url = req.url.split('?')[0];
   let file;
-  if (VENDOR[url]) file = path.join(nodeModules, VENDOR[url]);
-  else if (url === '/' || url === '/index.html') file = path.join(publicDir, 'index.html');
+  if (url === '/' || url === '/index.html') file = path.join(publicDir, 'index.html');
   else if (url === '/login') file = path.join(publicDir, 'login.html');
   else if (/^\/(app\.js|style\.css)$/.test(url)) file = path.join(publicDir, url.slice(1));
   else return false;

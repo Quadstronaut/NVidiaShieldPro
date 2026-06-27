@@ -3,7 +3,6 @@ import { WebSocketServer } from 'ws';
 import { COOKIE_NAME, parseCookie } from './auth.js';
 import { loadSnippets } from './snippets.js';
 import { serveStatic } from './static.js';
-import { validName } from './sessions.js';
 import path from 'node:path';
 
 const PUBLIC = path.resolve('public');
@@ -12,23 +11,20 @@ function json(res, code, obj) {
   res.writeHead(code, { 'content-type': 'application/json' });
   res.end(JSON.stringify(obj));
 }
-const MAX_BODY = 64 * 1024; // FIX 4: cap body size to prevent pre-auth DoS
+const MAX_BODY = 64 * 1024; // cap body size to prevent pre-auth DoS (inherited FIX 4)
 function readBody(req) {
   return new Promise((resolve) => {
     let b = '';
-    req.on('data', (c) => {
-      b += c;
-      if (b.length > MAX_BODY) { req.destroy(); resolve({}); }
-    });
+    req.on('data', (c) => { b += c; if (b.length > MAX_BODY) { req.destroy(); resolve({}); } });
     req.on('end', () => { try { resolve(b ? JSON.parse(b) : {}); } catch { resolve({}); } });
   });
 }
-function authed(req, auth) {
-  return auth.valid(parseCookie(req.headers.cookie));
-}
+function authed(req, auth) { return auth.valid(parseCookie(req.headers.cookie)); }
 
+// deps: the hub (createSession/listSessions/deleteSession/attach/hasSession) +
+// listDirs. Auth gate is unchanged from v1 and still covers the WS upgrade (I1).
 export function createServer({ config, auth, deps }) {
-  const open = config.noAuth === true; // CLAUDE_TERM_NO_AUTH=1: serve open, no passphrase
+  const open = config.noAuth === true;
   const server = http.createServer(async (req, res) => {
     const url = req.url.split('?')[0];
 
@@ -46,13 +42,12 @@ export function createServer({ config, auth, deps }) {
       return res.end('{}');
     }
     if (url === '/login') {
-      if (open) { res.writeHead(302, { location: '/' }); return res.end(); } // no login page when open
-      return serveStatic(req, res, PUBLIC); // GET login page
+      if (open) { res.writeHead(302, { location: '/' }); return res.end(); }
+      return serveStatic(req, res, PUBLIC);
     }
 
     // --- everything else requires auth (unless open mode) ---
-    const ok = open || authed(req, auth);
-    if (!ok) {
+    if (!(open || authed(req, auth))) {
       if (url.startsWith('/api/')) return json(res, 401, { error: 'unauthorized' });
       res.writeHead(302, { location: '/login' });
       return res.end();
@@ -61,16 +56,13 @@ export function createServer({ config, auth, deps }) {
     // --- API ---
     if (url === '/api/sessions' && req.method === 'GET') return json(res, 200, await deps.listSessions());
     if (url === '/api/sessions' && req.method === 'POST') {
-      const { name, cwd } = await readBody(req);
-      try {
-        await deps.createSession({ name, cwd, workspace: config.workspace, launchCmd: config.launchCmd });
-        return json(res, 201, { ok: true });
-      } catch (e) { return json(res, 400, { error: e.message }); }
+      const { cwd } = await readBody(req);
+      try { return json(res, 201, await deps.createSession({ cwd: cwd || config.workspace })); }
+      catch (e) { return json(res, 400, { error: e.message }); }
     }
     if (url.startsWith('/api/sessions/') && req.method === 'DELETE') {
-      const name = decodeURIComponent(url.slice('/api/sessions/'.length));
-      if (!validName(name)) return json(res, 400, { error: 'invalid session name' }); // FIX 1 (I3)
-      try { await deps.killSession({ name }); return (res.writeHead(204), res.end()); }
+      const id = decodeURIComponent(url.slice('/api/sessions/'.length));
+      try { await deps.deleteSession(id); return (res.writeHead(204), res.end()); }
       catch (e) { return json(res, 400, { error: e.message }); }
     }
     if (url === '/api/dirs') return json(res, 200, await deps.listDirs(config.workspace));
@@ -81,23 +73,19 @@ export function createServer({ config, auth, deps }) {
     res.writeHead(404); res.end('not found');
   });
 
-  // --- WS upgrade: auth-gated (I1) ---
+  // --- WS upgrade: auth-gated (I1), attaches the client to a session hub (D3) ---
   const wss = new WebSocketServer({ noServer: true });
   server.on('upgrade', (req, socket, head) => {
     if (!open && !auth.valid(parseCookie(req.headers.cookie))) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       return socket.destroy();
     }
-    const u = new URL(req.url, 'http://x');
-    const session = u.searchParams.get('session');
-    wss.handleUpgrade(req, socket, head, async (ws) => {
-      // FIX 2 (I1 defense-in-depth): reject invalid or unknown session names
-      if (!session || !validName(session) || !(await deps.hasSession({ name: session }))) {
-        ws.close(1008, 'invalid or unknown session');
-        return;
-      }
-      deps.attachSession(ws, session);
-    });
+    const id = new URL(req.url, 'http://x').searchParams.get('session');
+    if (!id || !deps.hasSession(id)) {
+      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+      return socket.destroy();
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => { deps.attach(ws, id); });
   });
 
   return server;
