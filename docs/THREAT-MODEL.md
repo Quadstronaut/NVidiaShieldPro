@@ -92,3 +92,71 @@ is explicit:
 
 Until then: the allowlist is the control, the LAN is the trust boundary, and this
 document is the statement of what that means.
+
+---
+
+# claude-term v2 — Threat Model (a bypass-permissions agent, by design)
+
+**Scope:** the `claude-term` native Claude Code UI at `http://10.0.0.88:7777`
+(see [`SPEC-claude-term-v2.md`](SPEC-claude-term-v2.md)). This is a **different and
+more powerful surface than `shield-c2`** and is documented honestly as such.
+
+## Posture: open LAN, bypass permissions ON, remote control ON
+
+As currently deployed (`CLAUDE_TERM_NO_AUTH=1`), the page is **unauthenticated on
+the LAN**, like Uptime-Kuma and `shield-c2`. Two user-locked defaults raise the
+stakes beyond `shield-c2`:
+
+- **Bypass permissions is ON for every session** (`--dangerously-skip-permissions`).
+  There is **no per-action approval gate** — the agent runs tools (bash, file
+  edits, web fetch) without asking. Mitigation is *visibility*, not gating: every
+  tool call is rendered as a card in the transcript (NI6), so actions are auditable
+  after the fact, not blocked before it.
+- **Remote control is ON for every session by default.** Any client on the LAN can
+  list, attach to, drive, and interrupt **any** session with no per-session enable,
+  and **multiple devices can drive one session at once**. This is the intended
+  ergonomics (the operator's phone is the control surface) — and it means anyone on
+  the LAN has the same power.
+
+## Blast radius
+
+A LAN user who opens `:7777` can drive a **full Claude Code agent** that can:
+
+- run arbitrary commands **as the in-container `claude` user** (non-root, uid 1000);
+- **read and write `/data/claude`** (the only writable host mount) and anything the
+  agent clones/creates there;
+- **spend the operator's Claude subscription / credits** via the injected
+  `CLAUDE_CODE_OAUTH_TOKEN` (each turn has a real dollar cost — visible in the
+  footer);
+- reach the **LAN** from the container (host networking).
+
+## The bright line vs `shield-c2`: NO docker socket (I9)
+
+`claude-term` **never mounts or contacts the docker socket** (verified: `ls
+/var/run/docker.sock` inside the container fails). So — unlike `shield-c2` — it
+**cannot** control Docker, create privileged containers, or escalate to host root.
+It is **workspace-confined** to `/data/claude` (a new session's cwd must `realpath`
+under it), runs **non-root**, and binds only port 7777. The container can be
+messed with from the LAN; the **host and the other containers cannot** be reached
+through it.
+
+## Plain HTTP
+
+Same as the rest of the stack: traffic is sniffable/tamperable on a hostile L2.
+The OAuth token is **not** sent to the browser (it lives only in the container
+env), but prompts, transcripts, and the LAN-crossing secret (if the gate is
+re-enabled) are cleartext.
+
+## Named upgrade path
+
+1. Re-enable the **passphrase gate** (`CLAUDE_TERM_NO_AUTH=0` + `CLAUDE_TERM_SECRET`)
+   — already supported; or put it behind a reverse proxy with TLS + per-user auth.
+2. Turn **bypass off** (`CLAUDE_TERM_SKIP_PERMISSIONS=0`) and add native
+   **Approve/Deny** prompts (the deferred v1.x fast-follow) so destructive actions
+   gate before they run.
+3. **Scope the OAuth token** to bound credit exposure.
+
+Until then: no-docker-socket + workspace-confinement + non-root bound the host
+blast radius; "every action is rendered" is the audit aid; the LAN is the trust
+boundary; and this section is the honest statement that `:7777` is a
+bypass-permissions agent anyone on that LAN can drive.

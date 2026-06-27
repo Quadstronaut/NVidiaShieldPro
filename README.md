@@ -130,7 +130,7 @@ flowchart TB
         K --> DK
         DK --> C2["📊 shield-c2 · :8888<br/>SvelteKit dashboard"]
         DK --> KU["📈 Uptime-Kuma · :3001"]
-        DK --> CT["💻 claude-term · :7777<br/>phone-driven Claude Code"]
+        DK --> CT["💻 claude-term · :7777<br/>native Claude Code UI (headless)"]
     end
     LAN <--> SHIELD
 ```
@@ -141,7 +141,7 @@ flowchart TB
 |---|---|---|---|
 | 📊 **shield-c2** | `shield-c2:latest` | [`:8888`](http://10.0.0.88:8888) | Live CPU/RAM/disk/net/thermals + container start/stop/restart/logs |
 | 📈 **Uptime-Kuma** | `louislam/uptime-kuma:2.4.0-slim` | [`:3001`](http://10.0.0.88:3001) | Uptime / health monitoring |
-| 💻 **claude-term** | `claude-term:latest` | [`:7777`](http://10.0.0.88:7777) | Phone-launched Claude Code sessions in tmux ([spec](docs/SPEC-claude-term.md) · [bringup](docs/claude-term-bringup-notes.md)) · persistent Claude state, collapsible prompts, login-link banner |
+| 💻 **claude-term** | `claude-term:latest` | [`:7777`](http://10.0.0.88:7777) | **Native, phone-first Claude Code UI** — a legible rendering of Claude Code's own interface (streamed markdown, ⏺ tool-call cards, diffs, `>` composer, cost footer) driven by real Claude Code running **headless** ([v2 spec](docs/SPEC-claude-term-v2.md) · [plan](docs/plans/2026-06-26-claude-term-v2.md) · [bringup](docs/claude-term-bringup-notes.md)). Bypass-permissions + remote-control on by default; sessions persist across reboot. Supersedes the v1 xterm/tmux terminal ([v1 spec](docs/SPEC-claude-term.md)). |
 
 <a id="deploy"></a>
 

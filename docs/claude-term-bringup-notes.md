@@ -1,6 +1,15 @@
 # claude-term — on-Shield bringup notes
 
-**Status: LIVE and verified on the Shield at `http://10.0.0.88:7777`** (2026-06-22;
+> **v2 (2026-06-26): the interface was pivoted from a terminal to a native
+> Claude Code UI.** The v1 xterm.js → tmux → Claude-Code-TUI path was illegible on
+> a phone (overlapping panels, horizontal overflow, a 6×-stacked tmux status bar at
+> 390px — reproduced live). v2 renders Claude Code's **headless `stream-json`
+> event stream** as native HTML (streamed markdown, ⏺ tool-call cards, diffs, `>`
+> composer, cost footer). See [`SPEC-claude-term-v2.md`](SPEC-claude-term-v2.md) and
+> the [v2 section](#v2--native-claude-code-ui-2026-06-26) at the bottom. The v1
+> notes below remain as the historical record of the path v2 supersedes.
+
+**Status (v1): LIVE on the Shield at `http://10.0.0.88:7777`** (2026-06-22;
 full Claude-state persistence + collapsible Prompts panel + login-link banner added 2026-06-23).
 Deployed over adb (`10.0.0.88:5555`). Build context lives at `/data/docker/claude-term`,
 launcher + secret env at `/data/docker/claude-term.sh` / `claude-term.env`.
@@ -101,3 +110,48 @@ http://10.0.0.88:7777/app.js`) — the slim image has no `wget` for in-container
   reassembled to one clean clickable link. A real phone pass is still worth doing once.
 - The `shield-c2` dashboard wasn't redeployed, so its "Claude Code" link only appears
   after a `c2-redeploy`. Direct `:7777` works regardless.
+
+## v2 — native Claude Code UI (2026-06-26)
+
+**Status: LIVE and verified on the Shield at `http://10.0.0.88:7777`.** The terminal
+is gone; the page now renders Claude Code's headless event stream natively.
+
+### What changed on-box
+- The app bridge is `server/agent.js` (spawns `claude -p --output-format stream-json
+  --verbose --include-partial-messages [--resume <id>] --dangerously-skip-permissions`,
+  **one process per turn**) + `server/hub.js` (one process, N attached sockets) +
+  a rewritten `server/sessions.js` over Claude Code's own `.jsonl` transcripts under
+  `/home/claude/.claude/projects/`. `node-pty`, `tmux`-attach, and xterm are gone.
+- The image already had `node` + `ws` + globally-installed `@anthropic-ai/claude-code
+  2.1.185`, and v2 adds **no new npm deps** — so deploy was the fast path, no rebuild.
+
+### Deploy recipe used (no image rebuild)
+```sh
+# from the PC (PowerShell — Git Bash mangles the absolute /data path):
+adb push server public package.json /data/docker/claude-term/      # update CTX
+DK="/data/docker/bin/docker -H unix:///data/docker/docker.sock"
+adb shell "$DK cp /data/docker/claude-term/server  claude-term:/app/"
+adb shell "$DK cp /data/docker/claude-term/public  claude-term:/app/"
+adb shell "$DK cp /data/docker/claude-term/package.json claude-term:/app/package.json"
+adb shell "$DK exec claude-term sh -c 'rm -f /app/server/pty-bridge.js /app/server/bracketed-paste.js'"
+adb shell "$DK exec -u 0 claude-term sh -c 'chown -R 1000:1000 /app/server /app/public /app/package.json'"
+adb shell "$DK restart claude-term"           # restart: new SERVER code needs a fresh node
+adb shell "$DK commit claude-term claude-term:latest"   # persist across recreate/reboot
+```
+Gotcha (Windows): drive `adb` from **PowerShell**, not Git Bash — MSYS rewrites a
+leading-`/` remote path to the Git install prefix and the push/exec silently target
+the wrong place.
+
+### Verified live (screenshots captured during bringup — `/*.png` is gitignored, so they stay local)
+- **AC4 native render, no garble** — at 390px the transcript shows streamed markdown,
+  ⏺ Bash cards, and results with zero overlap/overflow (vs the v1 `ct-02` garble).
+- **AC5/AC6 streaming + tool cards**, **AC7 bypass-on** (a Bash tool ran with no
+  approval prompt), footer live (`claude-sonnet-4-6 · ctx % · $cost`).
+- **AC8 multi-attach** — two browser tabs on one session; a message sent from tab 0
+  streamed into tab 1.
+- **AC9 persistence** — the transcript replayed from `.jsonl` after the deploy
+  `docker restart` (the same path survives a Shield reboot).
+- Scriptable §6: no docker socket, `/data/claude` writable, `/system` not, 6 snippet
+  chips, no `ENOSYS`.
+- Local: `node --test` (server/agent.test.js) 10/10 green for the event normalizer +
+  turn-runner.
