@@ -105,9 +105,15 @@ function stringifyResult(content) {
 // Run one user turn. Resolves with the (possibly newly-assigned) session id once
 // the process exits. `onEvent` receives normalized WS events as they stream.
 // `spawn` is injectable so the normalizer + line-splitter are unit-testable.
-export function runTurn({ cwd, sessionId, text, skipPermissions = true, onEvent, spawn = childSpawn }) {
+export function runTurn({ cwd, sessionId, create = false, text, skipPermissions = true, onEvent, spawn = childSpawn }) {
   const args = ['-p', text, '--output-format', 'stream-json', '--verbose', '--include-partial-messages'];
-  if (sessionId) args.push('--resume', sessionId);
+  // A brand-new session must be CREATED with its server-minted id via --session-id;
+  // only a session `claude` has already persisted can be --resume'd. Using --resume
+  // on a fresh id makes claude exit non-zero with
+  //   "No conversation found with session ID: <id>"
+  // which the UI surfaced as "no session found" + the rejected id. The hub decides
+  // create-vs-resume from whether the .jsonl exists on disk (hub.startTurn).
+  if (sessionId) args.push(create ? '--session-id' : '--resume', sessionId);
   if (skipPermissions) args.push('--dangerously-skip-permissions');
 
   const proc = spawn('claude', args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });

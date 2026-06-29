@@ -77,31 +77,39 @@ function fakeSpawn(lines, { exitCode = 0 } = {}) {
   return factory;
 }
 
-test('runTurn builds resume + bypass args and captures the session id', async () => {
+test('runTurn resumes an EXISTING session with --resume + bypass, captures the id', async () => {
   const spawn = fakeSpawn([
     { type: 'system', subtype: 'init', session_id: 'abc-123', model: 'm', slash_commands: [] },
     { type: 'assistant', message: { content: [{ type: 'text', text: 'PONG' }] }, session_id: 'abc-123' },
     { type: 'result', subtype: 'success', total_cost_usd: 0.01, stop_reason: 'end_turn', usage: {} },
   ]);
   const events = [];
-  const { done } = runTurn({ cwd: '/data/claude', sessionId: 'abc-123', text: 'hi', onEvent: (e) => events.push(e), spawn });
+  const { done } = runTurn({ cwd: '/data/claude', sessionId: 'abc-123', create: false, text: 'hi', onEvent: (e) => events.push(e), spawn });
   const res = await done;
 
   assert.equal(spawn.calls.cmd, 'claude');
   assert.ok(spawn.calls.args.includes('--dangerously-skip-permissions'));
   assert.deepEqual(spawn.calls.args.slice(0, 2), ['-p', 'hi']);
-  assert.ok(spawn.calls.args.includes('--resume') && spawn.calls.args.includes('abc-123'));
+  // --resume <id> (adjacent), and NOT --session-id (that would re-create / collide).
+  const i = spawn.calls.args.indexOf('--resume');
+  assert.equal(spawn.calls.args[i + 1], 'abc-123');
+  assert.ok(!spawn.calls.args.includes('--session-id'));
   assert.equal(res.sessionId, 'abc-123');
   assert.ok(events.some((e) => e.type === 'assistant_message' && e.text === 'PONG'));
   assert.ok(events.some((e) => e.type === 'result'));
 });
 
-test('runTurn omits --resume for a new session and learns the id from init', async () => {
+test('runTurn CREATES a new session with --session-id (never --resume)', async () => {
+  // The bug this guards: a brand-new server-minted id has no transcript yet, so
+  // `claude --resume <id>` exits with "No conversation found with session ID".
+  // The first turn must --session-id (create), only later turns --resume.
   const spawn = fakeSpawn([{ type: 'system', subtype: 'init', session_id: 'new-id', model: 'm', slash_commands: [] }]);
   const events = [];
-  const { done } = runTurn({ cwd: '/data/claude', text: 'first', onEvent: (e) => events.push(e), spawn });
+  const { done } = runTurn({ cwd: '/data/claude', sessionId: 'new-id', create: true, text: 'first', onEvent: (e) => events.push(e), spawn });
   const res = await done;
-  assert.ok(!spawn.calls.args.includes('--resume'));
+  const i = spawn.calls.args.indexOf('--session-id');
+  assert.equal(spawn.calls.args[i + 1], 'new-id');
+  assert.ok(!spawn.calls.args.includes('--resume'), 'a fresh session must not be --resume\'d');
   assert.equal(res.sessionId, 'new-id');
 });
 

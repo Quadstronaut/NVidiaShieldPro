@@ -145,6 +145,13 @@ function blockText(content) {
   return '';
 }
 
+// Has `claude` already persisted a transcript for this id? Decides whether the
+// next turn must CREATE the session (--session-id) or RESUME it (--resume) — see
+// hub.startTurn / agent.runTurn. Disk-truth, so it stays correct across restarts.
+export async function transcriptExists(id) {
+  return (await findTranscript(id)) !== null;
+}
+
 // The working dir a persisted session was created in (read from its transcript),
 // so a reattach after restart resumes `claude` in the right cwd. null if unknown.
 export async function readSessionCwd(id) {

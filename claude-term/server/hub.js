@@ -5,17 +5,20 @@
 // freshly-attached (or post-restart) client replays full history before going
 // live (NI5). New sessions are remote-controllable the instant they exist — no
 // per-session enable step.
-import { runTurn } from './agent.js';
+import { runTurn as defaultRunTurn } from './agent.js';
 import {
   createSession as storeCreate, deleteSession as storeDelete,
-  listSessions as storeList, loadTranscript, readSessionCwd, validId,
+  listSessions as storeList, loadTranscript, readSessionCwd, transcriptExists, validId,
 } from './sessions.js';
 
-export function createHub({ workspace, skipPermissions = true }) {
+export function createHub({ workspace, skipPermissions = true, runTurn = defaultRunTurn }) {
   const sessions = new Map(); // id -> { id, cwd, model, slashCommands, clients:Set, transcript:[], running, turn, queue }
 
   function shell(id, cwd) {
-    return { id, cwd, model: null, slashCommands: [], clients: new Set(), transcript: [], running: false, turn: null, queue: [] };
+    // `created` caches "claude has persisted this session's .jsonl" so we only
+    // disk-probe until it's true. false on a fresh shell (incl. a hydrated
+    // post-restart one) → startTurn re-checks disk before the first turn.
+    return { id, cwd, model: null, slashCommands: [], clients: new Set(), transcript: [], running: false, turn: null, queue: [], created: false };
   }
 
   function send(ws, ev) { try { ws.send(JSON.stringify(ev)); } catch { /* socket gone */ } }
@@ -41,10 +44,14 @@ export function createHub({ workspace, skipPermissions = true }) {
     return s;
   }
 
-  function startTurn(s, text) {
-    s.running = true;
+  async function startTurn(s, text) {
+    s.running = true; // set synchronously so a 2nd message queues rather than racing a 2nd process
+    // First turn of a not-yet-persisted session CREATEs it (--session-id); once its
+    // .jsonl exists we RESUME (--resume). Disk-truth, cached once true, so this is
+    // correct across restarts AND self-heals if a create turn failed to write a file.
+    if (!s.created) s.created = await transcriptExists(s.id);
     const { kill, done } = runTurn({
-      cwd: s.cwd, sessionId: s.id, text, skipPermissions,
+      cwd: s.cwd, sessionId: s.id, create: !s.created, text, skipPermissions,
       onEvent: (ev) => broadcast(s, ev),
     });
     s.turn = { kill };
