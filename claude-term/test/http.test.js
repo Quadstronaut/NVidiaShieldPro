@@ -1,19 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { randomUUID } from 'node:crypto';
 import { loadConfig } from '../server/config.js';
 import { createAuth } from '../server/auth.js';
 import { createServer } from '../server/http.js';
 
+// v2 deps shape: sessions are uuid-keyed, created from a cwd (no names/tmux).
+// deleteSession mirrors the hub — it throws 'invalid session id' on a non-uuid.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function deps() {
-  const sessions = [];
+  const sessions = new Map();
   return {
-    listSessions: async () => sessions,
-    createSession: async ({ name }) => { sessions.push({ name, cwd: '/data/claude' }); },
-    killSession: async ({ name }) => { const i = sessions.findIndex((s) => s.name === name); if (i >= 0) sessions.splice(i, 1); },
-    hasSession: async ({ name }) => sessions.some((s) => s.name === name),
-    listDirs: async () => ['proj'],
-    attachSession: () => {},
+    listSessions: async () => [...sessions.values()],
+    createSession: async ({ cwd }) => { const id = randomUUID(); sessions.set(id, { id, cwd, title: '(new session)' }); return { id, cwd }; },
+    deleteSession: async (id) => { if (!UUID_RE.test(id)) throw new Error('invalid session id'); sessions.delete(id); },
+    attach: () => {},
+    hasSession: (id) => UUID_RE.test(id),
+    listDirs: async () => ['/data/claude'],
   };
 }
 
@@ -25,6 +29,11 @@ async function boot() {
   await once(srv, 'listening');
   const base = `http://127.0.0.1:${srv.address().port}`;
   return { srv, base };
+}
+
+async function loginCookie(base) {
+  const r = await fetch(base + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret: 'pw' }) });
+  return r.headers.get('set-cookie').split(';')[0];
 }
 
 test('AC1: no cookie → / returns 302 to /login', async () => {
@@ -52,15 +61,16 @@ test('AC1: wrong secret → 401, no cookie', async () => {
   srv.close();
 });
 
-test('AC2: session create/list/delete through the API', async () => {
+test('AC2: session create/list/delete through the API (uuid-keyed)', async () => {
   const { srv, base } = await boot();
-  const login = await fetch(base + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret: 'pw' }) });
-  const cookie = login.headers.get('set-cookie').split(';')[0];
-  const c = await fetch(base + '/api/sessions', { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ name: 't1', cwd: '/data/claude' }) });
+  const cookie = await loginCookie(base);
+  const c = await fetch(base + '/api/sessions', { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ cwd: '/data/claude' }) });
   assert.equal(c.status, 201);
+  const { id } = await c.json();
+  assert.ok(UUID_RE.test(id), 'create returns a uuid');
   const list = await (await fetch(base + '/api/sessions', { headers: { cookie } })).json();
-  assert.ok(list.some((s) => s.name === 't1'));
-  const d = await fetch(base + '/api/sessions/t1', { method: 'DELETE', headers: { cookie } });
+  assert.ok(list.some((s) => s.id === id));
+  const d = await fetch(base + '/api/sessions/' + id, { method: 'DELETE', headers: { cookie } });
   assert.equal(d.status, 204);
   srv.close();
 });
@@ -72,14 +82,11 @@ test('api without cookie → 401', async () => {
   srv.close();
 });
 
-// FIX 1: DELETE with invalid session name (contains space after URL-decode) → 400
-test('DELETE /api/sessions/:name with invalid name → 400', async () => {
+test('DELETE /api/sessions/:id with a non-uuid → 400', async () => {
   const { srv, base } = await boot();
-  const login = await fetch(base + '/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret: 'pw' }) });
-  const cookie = login.headers.get('set-cookie').split(';')[0];
-  const r = await fetch(base + '/api/sessions/bad%20name', { method: 'DELETE', headers: { cookie } });
+  const cookie = await loginCookie(base);
+  const r = await fetch(base + '/api/sessions/not-a-uuid', { method: 'DELETE', headers: { cookie } });
   assert.equal(r.status, 400);
-  const body = await r.json();
-  assert.equal(body.error, 'invalid session name');
+  assert.equal((await r.json()).error, 'invalid session id');
   srv.close();
 });
