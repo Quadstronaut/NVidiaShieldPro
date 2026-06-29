@@ -7,8 +7,11 @@ set -e
 REPO_DIR=${REPO_DIR:-/data/NVidiaShieldPro}
 BR="$REPO_DIR/docker-bringup"
 
-# Order matters loosely: monitors first, app last.
-ACTIVE="kuma-netfix.sh c2.sh"
+# Order matters loosely: monitors first, app last, steering after the app it steers.
+# claude-steer.sh is non-destructive (refreshes claude-term's Claude steering only);
+# claude-term.sh itself is intentionally NOT here — it needs an untracked on-device
+# env (secret/OAuth) and is deployed manually, so the rail must not recreate it.
+ACTIVE="kuma-netfix.sh c2.sh claude-steer.sh"
 
 for s in $ACTIVE; do
   if [ -f "$BR/$s" ]; then
