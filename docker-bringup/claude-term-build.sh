@@ -18,14 +18,31 @@ set -e
 DK="/data/docker/bin/docker -H unix:///data/docker/docker.sock"
 IMG="node:20-bookworm-slim@sha256:10fc5f5f33cba34a4befa58fcf95f724e67707fab7c32fb8cd3fcf90ebcc20df"
 CTX=${CLAUDE_TERM_CTX:-/data/docker/claude-term}
+GH_VER=${GH_VER:-2.96.0}   # bump = bump this one var; the build re-verifies the sha256
 
 $DK rm -f ct-build 2>/dev/null || true
 
 echo "== start host-net build container =="
 $DK run -d --network=host --name ct-build "$IMG" sleep infinity
 
-echo "== apt: tmux git ripgrep ca-certificates (sandbox=root, pinned DNS, IPv4) =="
-$DK exec ct-build sh -c 'printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf && apt-get -o APT::Sandbox::User=root -o Acquire::ForceIPv4=true update && apt-get -o APT::Sandbox::User=root -o Acquire::ForceIPv4=true install -y --no-install-recommends tmux git ripgrep ca-certificates && rm -rf /var/lib/apt/lists/*'
+echo "== apt: tmux git ripgrep ca-certificates openssh-client curl (sandbox=root, pinned DNS, IPv4) =="
+# openssh-client = ssh + ssh-keygen for Starhold/qflix (Deliverable C); curl = fetch gh below.
+$DK exec ct-build sh -c 'printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf && apt-get -o APT::Sandbox::User=root -o Acquire::ForceIPv4=true update && apt-get -o APT::Sandbox::User=root -o Acquire::ForceIPv4=true install -y --no-install-recommends tmux git ripgrep ca-certificates openssh-client curl && rm -rf /var/lib/apt/lists/*'
+
+echo "== gh CLI (pinned $GH_VER, arm64, sha256-verified against the release's own checksums) =="
+# Baked into the image (NOT a runtime apt install): a runtime install is lost on
+# every container recreate, and this kernel's `docker build` has no network. gh is
+# fetched from the official release and verified against gh_<ver>_checksums.txt from
+# the SAME release (pin the version in the URL; verify the bytes against the sidecar).
+$DK exec ct-build sh -c "set -e; cd /tmp
+  base=https://github.com/cli/cli/releases/download/v$GH_VER
+  curl -fsSL -o gh.tgz \$base/gh_${GH_VER}_linux_arm64.tar.gz
+  curl -fsSL -o gh.sums \$base/gh_${GH_VER}_checksums.txt
+  grep \"gh_${GH_VER}_linux_arm64.tar.gz\" gh.sums | sha256sum -c -
+  tar -xzf gh.tgz
+  install -m 0755 gh_${GH_VER}_linux_arm64/bin/gh /usr/local/bin/gh
+  rm -rf gh.tgz gh.sums gh_${GH_VER}_linux_arm64
+  /usr/local/bin/gh --version"
 
 echo "== non-root claude (uid 1000; -o: node:20 already uses 1000) + dirs =="
 $DK exec ct-build sh -c 'useradd -m -o -u 1000 claude && mkdir -p /app /data/claude'

@@ -10,11 +10,25 @@ FROM --platform=linux/arm64 node:20-bookworm-slim@sha256:10fc5f5f33cba34a4befa58
 # Force reliable DNS first: the LAN router (10.0.0.1, first nameserver) flakes
 # under apt's burst of parallel lookups ("Temporary failure resolving"). Pin
 # 8.8.8.8/1.1.1.1, force IPv4, and retry so the on-device build is deterministic.
+# openssh-client (ssh + ssh-keygen for Starhold/qflix), curl (fetch gh). NOTE: the
+# on-device image is actually built by docker-bringup/claude-term-build.sh (run+commit,
+# because this kernel's `docker build` has no host network) — keep the two in sync.
 RUN printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > /etc/resolv.conf \
     && apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=3 update \
     && apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=3 install -y --no-install-recommends \
-      tmux git ripgrep ca-certificates \
+      tmux git ripgrep ca-certificates openssh-client curl \
     && rm -rf /var/lib/apt/lists/*
+
+# gh CLI — pinned + sha256-verified against the release's own checksums sidecar.
+# Baked in (not a runtime install): survives container recreate; verify the version
+# in the URL AND the bytes against the signed sidecar.
+ARG GH_VER=2.96.0
+RUN set -eux; cd /tmp; base="https://github.com/cli/cli/releases/download/v${GH_VER}"; \
+    curl -fsSL -o gh.tgz  "$base/gh_${GH_VER}_linux_arm64.tar.gz"; \
+    curl -fsSL -o gh.sums "$base/gh_${GH_VER}_checksums.txt"; \
+    grep "gh_${GH_VER}_linux_arm64.tar.gz" gh.sums | sha256sum -c -; \
+    tar -xzf gh.tgz; install -m 0755 "gh_${GH_VER}_linux_arm64/bin/gh" /usr/local/bin/gh; \
+    rm -rf gh.tgz gh.sums "gh_${GH_VER}_linux_arm64"; gh --version
 
 # Non-root user owns the app and runs Claude Code (I8).
 RUN useradd -m -u 1000 claude

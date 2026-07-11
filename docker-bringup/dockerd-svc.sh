@@ -41,6 +41,13 @@ rm -f $ROOT/docker.sock $ROOT/dockerd.pid; rm -rf $ROOT/exec/*
 # /product/bin/sshd can't shield host keys on this ROM, hence the static build.
 sh $ROOT/dropbear.sh >> $ROOT/dropbear-boot.log 2>&1 || true
 
+# Tailscale daemon — also independent of docker; started here (NOT a second init .rc)
+# so it shares this one boot trigger and can't race dockerd's. Backgrounded as its own
+# self-supervising loop (backoff + log-rotate inside tailscaled-svc.sh); a --network
+# host container then inherits the tailnet with no per-container config. No-op-safe if
+# tailscale isn't installed yet.
+[ -f $ROOT/tailscaled-svc.sh ] && $BB setsid $BB sh $ROOT/tailscaled-svc.sh >/dev/null 2>&1 &
+
 cat > $ROOT/nsstart.sh <<'NS'
 BIN=/data/docker/bin
 ROOT=/data/docker

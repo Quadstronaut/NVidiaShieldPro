@@ -1,0 +1,40 @@
+// tailscale-acl.hujson — REFERENCE policy for scoping the Shield node.
+// Apply by hand in the Tailscale admin console (Access Controls). This file is
+// documentation/source-of-truth; it carries NO secrets (tag names + tailnet IPs
+// are not sensitive). The Shield enrolls as `tag:shield` (see tailscale-up).
+//
+// GOAL: tag:shield may reach ONLY the two Starhold boxes on :22, while every
+// other device (DEVIL, etc.) keeps its existing access. Tailscale ACLs are
+// default-DENY once an `acls` block exists, so the "preserve everyone else"
+// rule below is REQUIRED — dropping it would lock DEVIL out (a bug the council
+// caught in a candidate that shipped it as a comment instead of an active rule).
+{
+  "tagOwners": {
+    // Who may apply tag:shield to a node. autogroup:admin = you.
+    "tag:shield": ["autogroup:admin"],
+  },
+
+  "acls": [
+    // 1) PRESERVE existing access: your own (untagged) user devices reach anything.
+    //    Keep/merge this with whatever your current policy already grants.
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["*:*"] },
+
+    // 2) SCOPE the Shield: tag:shield may reach ONLY Starhold, ONLY SSH (:22).
+    //    Replace the placeholders with your real starhold tailnet IPs when you paste
+    //    this in the console (they live in your untracked shield-access.env, not here).
+    //    /32 tailnet IPs are exact; if you later tag the boxes (tag:starhold) you can
+    //    swap dst to ["tag:starhold:22"] for readability.
+    {
+      "action": "accept",
+      "src": ["tag:shield"],
+      "dst": [
+        "STARHOLD_DEDI_IP:22", // starhold-dedi
+        "STARHOLD_VPS_IP:22",  // starhold-vps
+      ],
+    },
+  ],
+
+  // Do NOT enable Tailscale SSH into the Shield (--ssh=false at enroll). The qflix
+  // host is reached over the PUBLIC internet, not the tailnet, so it is
+  // intentionally absent here.
+}

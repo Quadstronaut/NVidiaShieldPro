@@ -12,6 +12,7 @@ dist/
 !.env.example
 deploy/deploy.env
 docker-bringup/claude-term.env
+docker-bringup/shield-access.env
 *credentials*
 *.token
 *.pat
@@ -21,6 +22,14 @@ id_ed25519*
 id_rsa*
 shield_deploy_ed25519*
 *.pem
+# Shield remote-access keys (born in the claude-home volume, never in-tree)
+starhold_ed25519*
+qflix_ed25519*
+# tailscale node state + auth keys + gh token store (live under /data/tailscale + claude-home)
+*authkey*
+*.tskey
+tailscaled.state
+hosts.yml
 
 # --- large binaries / device blobs (kept out of git) ---
 *.apk
