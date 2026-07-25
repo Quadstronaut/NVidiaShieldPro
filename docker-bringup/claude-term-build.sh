@@ -34,14 +34,19 @@ echo "== gh CLI (pinned $GH_VER, arm64, sha256-verified against the release's ow
 # every container recreate, and this kernel's `docker build` has no network. gh is
 # fetched from the official release and verified against gh_<ver>_checksums.txt from
 # the SAME release (pin the version in the URL; verify the bytes against the sidecar).
+# NOTE: the tarball MUST be saved under its real release filename. `sha256sum -c`
+# opens the filename recorded in the checksums manifest, so downloading to a
+# different local name (e.g. gh.tgz) makes verification fail with
+# "FAILED open or read" every time, regardless of network. Use curl -O.
 $DK exec ct-build sh -c "set -e; cd /tmp
   base=https://github.com/cli/cli/releases/download/v$GH_VER
-  curl -fsSL -o gh.tgz \$base/gh_${GH_VER}_linux_arm64.tar.gz
+  tgz=gh_${GH_VER}_linux_arm64.tar.gz
+  curl -fsSL -O \$base/\$tgz
   curl -fsSL -o gh.sums \$base/gh_${GH_VER}_checksums.txt
-  grep \"gh_${GH_VER}_linux_arm64.tar.gz\" gh.sums | sha256sum -c -
-  tar -xzf gh.tgz
+  grep \" \$tgz\$\" gh.sums | sha256sum -c -
+  tar -xzf \$tgz
   install -m 0755 gh_${GH_VER}_linux_arm64/bin/gh /usr/local/bin/gh
-  rm -rf gh.tgz gh.sums gh_${GH_VER}_linux_arm64
+  rm -rf \$tgz gh.sums gh_${GH_VER}_linux_arm64
   /usr/local/bin/gh --version"
 
 echo "== non-root claude (uid 1000; -o: node:20 already uses 1000) + dirs =="

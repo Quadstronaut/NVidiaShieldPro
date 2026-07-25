@@ -23,12 +23,16 @@ RUN printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > /etc/resolv.conf \
 # Baked in (not a runtime install): survives container recreate; verify the version
 # in the URL AND the bytes against the signed sidecar.
 ARG GH_VER=2.96.0
+# The tarball MUST keep its real release filename: `sha256sum -c` opens the name
+# recorded in the manifest, so saving it as gh.tgz fails verification every time
+# ("FAILED open or read"), independent of the network. Hence curl -O.
 RUN set -eux; cd /tmp; base="https://github.com/cli/cli/releases/download/v${GH_VER}"; \
-    curl -fsSL -o gh.tgz  "$base/gh_${GH_VER}_linux_arm64.tar.gz"; \
+    tgz="gh_${GH_VER}_linux_arm64.tar.gz"; \
+    curl -fsSL -O "$base/$tgz"; \
     curl -fsSL -o gh.sums "$base/gh_${GH_VER}_checksums.txt"; \
-    grep "gh_${GH_VER}_linux_arm64.tar.gz" gh.sums | sha256sum -c -; \
-    tar -xzf gh.tgz; install -m 0755 "gh_${GH_VER}_linux_arm64/bin/gh" /usr/local/bin/gh; \
-    rm -rf gh.tgz gh.sums "gh_${GH_VER}_linux_arm64"; gh --version
+    grep " $tgz\$" gh.sums | sha256sum -c -; \
+    tar -xzf "$tgz"; install -m 0755 "gh_${GH_VER}_linux_arm64/bin/gh" /usr/local/bin/gh; \
+    rm -rf "$tgz" gh.sums "gh_${GH_VER}_linux_arm64"; gh --version
 
 # Non-root user owns the app and runs Claude Code (I8).
 RUN useradd -m -u 1000 claude
