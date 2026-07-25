@@ -23,7 +23,11 @@ $D exec -u claude claude-term sh -c '
   faillist=""; skiplist=""
   for d in /data/claude/GIT/*/*/; do
     [ -d "$d/.git" ] || continue
-    rel=$(echo "$d" | sed "s#/data/claude/GIT/##; s#/$##")
+    # Shell parameter expansion, NOT sed. A `sed "s#/$##"` here has its `$#`
+    # expanded by the shell (argument count) before sed ever sees it, giving
+    # "unterminated `s command" on every iteration.
+    rel=${d#/data/claude/GIT/}
+    rel=${rel%/}
 
     # never touch a repo with uncommitted work
     if [ -n "$(git -C "$d" status --porcelain 2>/dev/null)" ]; then

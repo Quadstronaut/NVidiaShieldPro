@@ -190,8 +190,12 @@ Check 'steering present (CLAUDE.md + skills + agents)' {
 
 Check 'claude-env rail stays retired' {
   # If this comes back, it will overwrite the synced steering at every boot.
-  $r = Sh "grep -c claude-steer /data/NVidiaShieldPro/deploy/redeploy.sh || true"
-  [pscustomobject]@{ ok = ($r.Out.Trim() -eq '0'); detail = $(if ($r.Out.Trim() -eq '0') { 'not wired' } else { 'RE-WIRED: would clobber synced steering' }) }
+  # Match the ACTIVE= line ONLY: redeploy.sh carries a comment explaining why
+  # claude-steer.sh was removed, so grepping the whole file always "finds" it
+  # and the check would fail forever on its own documentation.
+  $r = Sh "grep '^ACTIVE=' /data/NVidiaShieldPro/deploy/redeploy.sh"
+  $wired = $r.Out -match 'claude-steer'
+  [pscustomobject]@{ ok = (-not $wired); detail = $(if ($wired) { "RE-WIRED: $($r.Out)" } else { $r.Out.Trim() }) }
 } | Out-Null
 
 # ---------- freshness ----------
