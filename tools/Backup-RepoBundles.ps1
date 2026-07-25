@@ -73,19 +73,34 @@ $ok = 0; $failed = 0; $failList = @()
 foreach ($r in $repos) {
   $out = Join-Path $Destination "$($r.Name).$stamp.bundle"
   try {
+    # NOTE: do NOT use 2>&1 on these git calls. Under PowerShell 5.1 redirecting a
+    # native command's stderr wraps every line in an ErrorRecord, which with
+    # $ErrorActionPreference='Stop' becomes a terminating error even on exit 0.
+    # `git bundle verify` prints its SUCCESS message ("<file> is okay") to stderr,
+    # so 2>&1 made every successful bundle look like a failure -- and the catch
+    # below then deleted it. Suppress stdout only and trust $LASTEXITCODE.
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+
     # --all captures every ref (branches AND tags), which is what makes this a
     # real recovery artifact rather than a snapshot of one branch.
-    & git -C $r.Path bundle create $out --all 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "git bundle exited $LASTEXITCODE" }
+    & git -C $r.Path bundle create $out --all | Out-Null
+    $rcCreate = $LASTEXITCODE
 
     # A bundle that cannot be verified is not a backup. Prove it before trusting it.
-    & git -C $r.Path bundle verify $out 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'bundle verify failed' }
+    if ($rcCreate -eq 0) { & git -C $r.Path bundle verify $out | Out-Null; $rcVerify = $LASTEXITCODE }
+    else { $rcVerify = 1 }
+
+    $ErrorActionPreference = $prev
+
+    if ($rcCreate -ne 0) { throw "git bundle create exited $rcCreate" }
+    if ($rcVerify -ne 0) { throw "git bundle verify exited $rcVerify" }
 
     $mb = [math]::Round((Get-Item $out).Length / 1MB, 2)
     "{0,-46} {1,8} MB" -f $r.Name, $mb
     $ok++
   } catch {
+    $ErrorActionPreference = 'Stop'
     "{0,-46} FAILED: {1}" -f $r.Name, $_.Exception.Message
     $failed++; $failList += $r.Name
     if (Test-Path $out) { Remove-Item $out -Force }   # never leave an unverified bundle
