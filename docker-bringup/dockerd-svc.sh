@@ -48,6 +48,12 @@ sh $ROOT/dropbear.sh >> $ROOT/dropbear-boot.log 2>&1 || true
 # tailscale isn't installed yet.
 [ -f $ROOT/tailscaled-svc.sh ] && $BB setsid $BB sh $ROOT/tailscaled-svc.sh >/dev/null 2>&1 &
 
+# Daily repo refresh - same slot and same self-supervising pattern as tailscaled.
+# Android has no cron; this keeps one boot trigger and one supervision mechanism
+# rather than adding busybox crond alongside. It waits for claude-term itself, so
+# launching here (before dockerd exec's below) is safe. No-op-safe if absent.
+[ -f $ROOT/repo-refresh-svc.sh ] && $BB setsid $BB sh $ROOT/repo-refresh-svc.sh >/dev/null 2>&1 &
+
 cat > $ROOT/nsstart.sh <<'NS'
 BIN=/data/docker/bin
 ROOT=/data/docker
