@@ -7,11 +7,18 @@ set -e
 REPO_DIR=${REPO_DIR:-/data/NVidiaShieldPro}
 BR="$REPO_DIR/docker-bringup"
 
-# Order matters loosely: monitors first, app last, steering after the app it steers.
-# claude-steer.sh is non-destructive (refreshes claude-term's Claude steering only);
-# claude-term.sh itself is intentionally NOT here — it needs an untracked on-device
-# env (secret/OAuth) and is deployed manually, so the rail must not recreate it.
-ACTIVE="kuma-netfix.sh c2.sh claude-steer.sh"
+# Order matters loosely: monitors first, app last.
+#
+# claude-steer.sh is GONE ON PURPOSE. It copied claude-env/ (this PUBLIC repo's
+# tiny public-safe steering: 3 skills, 4 agents) over /home/claude/.claude on
+# every boot. Steering is now delivered by tools/Sync-ShieldIdentity.ps1 over a
+# PRIVATE rail carrying the full ~/.claude -- 623 memory files, 6 skills, 8
+# agents. Leaving claude-steer.sh wired here would overwrite the richer content
+# at every reboot: two writers, one directory, the poorer one winning.
+#
+# claude-term.sh is also intentionally NOT here -- it needs an untracked
+# on-device env (secret/OAuth), so the rail must never recreate that container.
+ACTIVE="kuma-netfix.sh c2.sh"
 
 for s in $ACTIVE; do
   if [ -f "$BR/$s" ]; then
