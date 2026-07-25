@@ -52,6 +52,10 @@ docker-bringup/bin/
 .claude/worktrees/
 .claude/_*
 .superpowers/
+# Design specs describe DEVIL's private topology (workstation paths, memory keys
+# derived from the drive layout, private repo names). This repo is PUBLIC and its
+# history is permanent — specs stay local. Redact before publishing any of them.
+docs/superpowers/
 
 # --- caches / logs / scratch ---
 .playwright-mcp/
