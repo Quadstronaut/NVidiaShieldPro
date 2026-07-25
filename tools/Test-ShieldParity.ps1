@@ -50,12 +50,15 @@ function Check([string]$Name, [scriptblock]$Test) {
   } catch {
     $ok = $false; $detail = $_.Exception.Message
   }
+  # Write-Host, not pipeline output: callers use `| Out-Null` to discard the
+  # boolean return, which would swallow an emitted string too and leave the
+  # tool silent about the very thing it exists to report.
   if ($ok) {
     $script:Pass++
-    "  [PASS] {0,-44} {1}" -f $Name, $detail
+    Write-Host ("  [PASS] {0,-44} {1}" -f $Name, $detail) -ForegroundColor Green
   } else {
     $script:Fail++; $script:Failures += $Name
-    "  [FAIL] {0,-44} {1}" -f $Name, $detail
+    Write-Host ("  [FAIL] {0,-44} {1}" -f $Name, $detail) -ForegroundColor Red
   }
   return $ok
 }
