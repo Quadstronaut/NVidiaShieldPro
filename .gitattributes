@@ -1,0 +1,21 @@
+# Line endings for anything that runs ON THE DEVICE.
+#
+# Android's /system/bin/sh rejects CRLF outright, and the failure does not look
+# like a line-ending problem: a script with CRLF fails partway through with an
+# error about a command name that has an invisible \r glued to it.
+#
+# The reflexive fix makes it worse. Toybox sed does not interpret \r, so the
+# standard guard `sed -i 's/\r$//'` degrades to `s/r$//` and silently strips a
+# trailing literal 'r' from every line of the file. That is how a build script's
+# `/app/server` once became `/app/serve`, so the application never landed in the
+# image while `docker commit` still reported success.
+#
+# Pinning eol=lf here means the bytes are correct before they ever leave git,
+# whoever clones and whatever their core.autocrlf happens to be. Detection still
+# belongs at the install step (deploy/install-device-scripts.sh aborts on a CR);
+# this is the belt to that suspenders.
+*.sh        text eol=lf
+*.rc        text eol=lf
+*.hujson    text eol=lf
+Dockerfile  text eol=lf
+*.env.example text eol=lf

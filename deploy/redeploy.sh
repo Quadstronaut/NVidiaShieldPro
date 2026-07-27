@@ -6,6 +6,13 @@ set -e
 
 REPO_DIR=${REPO_DIR:-/data/NVidiaShieldPro}
 BR="$REPO_DIR/docker-bringup"
+HERE=$(dirname "$0")
+
+# FIRST: make /data/docker match the repo we just pulled. Without this the deploy
+# rail pulled new code and then ran the OLD copies forever -- the repo was the
+# source of truth for nothing. Copy-only and non-restarting by design; see the
+# header of install-device-scripts.sh for why restarting here would self-kill.
+sh "$HERE/install-device-scripts.sh"
 
 # Order matters loosely: monitors first, app last.
 #

@@ -2,15 +2,31 @@
 # Runs AS the init 'dockerd' service's main process. Does non-namespace setup,
 # then exec's into unshare -> nsstart -> dockerd so that dockerd inherits this
 # PID and init supervises it (non-oneshot). dockerd must NOT be backgrounded.
-exec >> /data/docker/boot.log 2>&1
 BIN=/data/docker/bin
 ROOT=/data/docker
 BB=$BIN/busybox
 export PATH=$BIN:/system/bin:/system/xbin
+# Rotate BEFORE redirecting: this log is append-only across every boot and every
+# crash-restart, and nothing else ever truncates it. Cheap, and it keeps an
+# always-on box from growing an unbounded file for years.
+[ -f $ROOT/boot.log ] && [ "$($BB stat -c %s $ROOT/boot.log 2>/dev/null || echo 0)" -gt 1048576 ] && \
+  $BB mv $ROOT/boot.log $ROOT/boot.log.1
+exec >> /data/docker/boot.log 2>&1
 echo "===== dockerd-svc start $($BB date 2>/dev/null) ====="
 
 # kill any stale leftovers (busybox here has no pkill)
-for pat in bin/dockerd bin/containerd containerd-shim bin/runc nsstart; do
+#
+# repo-refresh-svc and tailscaled-svc are in this list ON PURPOSE. They are
+# launched below with setsid, so they get their OWN session and process group and
+# therefore SURVIVE an init restart of this service -- and init restarts do happen
+# (boot.log records three dockerd-svc starts inside two minutes on 2026-06-22).
+# Without this, every restart stacked another copy of each loop. Two repo-refresh
+# loops means two concurrent `git fetch` passes over the same 55 clones, which
+# collide on .git/index.lock, interleave into one shared log, and race to write
+# /data/claude/.last-refresh -- so the parity gate reads whichever finished last
+# and reports a healthy refresh that never coherently happened.
+# install-refresh.sh already killed-before-spawn; this makes the boot path agree.
+for pat in bin/dockerd bin/containerd containerd-shim bin/runc nsstart repo-refresh-svc tailscaled-svc; do
   for p in $($BB ps -ef 2>/dev/null | $BB grep "$pat" | $BB grep -v grep | $BB awk '{print $1}'); do
     kill -9 "$p" 2>/dev/null
   done

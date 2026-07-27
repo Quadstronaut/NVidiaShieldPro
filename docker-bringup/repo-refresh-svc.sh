@@ -34,6 +34,27 @@ while :; do
   if [ $waited -ge 600 ]; then
     log "claude-term not running after ${waited}s - skipping this cycle"
   else
+    # 1) Pull THIS repo and redeploy on change.
+    #
+    # shield-deploy.rc fires only on sys.boot_completed, and this box stays up for
+    # days (4.4 days at one measurement). So a fix pushed to GitHub sat unapplied
+    # until someone happened to reboot -- which is how /data/docker drifted from
+    # the repo in the first place. Reusing this loop keeps the design's rule of one
+    # boot trigger and one supervision mechanism, instead of adding a scheduler.
+    #
+    # Safe to call from in here: redeploy.sh -> install-device-scripts.sh only
+    # COPIES (by atomic rename) and never restarts anything, so this cannot kill
+    # its own ancestor, and a new copy of this very file cannot corrupt the
+    # running one.
+    if [ -f /data/NVidiaShieldPro/deploy/pull-and-deploy.sh ]; then
+      if sh /data/NVidiaShieldPro/deploy/pull-and-deploy.sh >/dev/null 2>&1; then
+        log "deploy: ok"
+      else
+        log "deploy: FAILED - see /data/docker/deploy.log"
+      fi
+    fi
+
+    # 2) Refresh the 55 clones.
     if [ -f $ROOT/repo-refresh.sh ]; then
       out=$(sh $ROOT/repo-refresh.sh 2>&1)
       log "refresh: $(echo "$out" | $BB tr '\n' ' ')"
