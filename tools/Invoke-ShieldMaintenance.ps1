@@ -89,11 +89,33 @@ function Invoke-Tool([string]$Name, [string]$Script, [string[]]$ToolArgs) {
   $sw = [Diagnostics.Stopwatch]::StartNew()
   $out = Join-Path $LogDir ("last-$Name.txt")
   $argv = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $path) + $ToolArgs
-  # Capture the tool's own output to its own file: the rolling log stays one line
-  # per stage and stays readable, while the full detail is still there to read
-  # after a failure.
-  & $PS $argv *>&1 | Out-File -FilePath $out -Encoding UTF8
-  $rc = $LASTEXITCODE
+
+  # Start-Process with OS-level redirection, NOT `& $PS ... *>&1 | Out-File`.
+  #
+  # The pipeline form fails on success. PowerShell 5.1 wraps every stderr line
+  # from a native command in an ErrorRecord, and under
+  # $ErrorActionPreference='Stop' that becomes terminating even when the process
+  # exited 0. `git bundle verify` prints its SUCCESS message ("<file> is okay")
+  # to stderr, so a completely healthy bundle run aborted this script. That is
+  # the same 5.1 trap already documented in Backup-RepoBundles.ps1 and
+  # Test-ShieldParity.ps1; it applies to capturing a child shell too.
+  #
+  # Start-Process hands redirection to the OS, so nothing is reinterpreted as an
+  # error, and -PassThru gives the real exit code. It also cannot merge both
+  # streams into one file, hence the two temporaries.
+  $so = [IO.Path]::GetTempFileName(); $se = [IO.Path]::GetTempFileName()
+  try {
+    $p = Start-Process -FilePath $PS -ArgumentList $argv -NoNewWindow -Wait -PassThru `
+                       -RedirectStandardOutput $so -RedirectStandardError $se
+    $rc = $p.ExitCode
+    $body = @(
+      "--- stdout ---", (Get-Content $so -Raw -ErrorAction SilentlyContinue),
+      "--- stderr ---", (Get-Content $se -Raw -ErrorAction SilentlyContinue)
+    ) -join "`r`n"
+    Set-Content -Path $out -Value $body -Encoding UTF8
+  } finally {
+    Remove-Item $so, $se -Force -ErrorAction SilentlyContinue
+  }
   $sw.Stop()
   $verdict = if ($rc -eq 0) { 'OK' } else { "FAILED rc=$rc" }
   Write-Log ("  {0,-22} {1}  ({2}s, detail: {3})" -f $Name, $verdict, [math]::Round($sw.Elapsed.TotalSeconds), (Split-Path $out -Leaf))

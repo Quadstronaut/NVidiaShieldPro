@@ -186,8 +186,18 @@ Check 'every repo is trust-accepted (no blocking prompt)' {
   # reported 17/17, because nothing here ever looked. "Present on disk" and
   # "usable" are different properties; only the second one is the point.
   #
-  # Done in node rather than shell: it parses the same JSON claude-code reads,
-  # so it cannot disagree with it, and it needs no quoting gymnastics over ssh.
+  # Done in node rather than shell: it parses the same JSON claude-code reads, so
+  # it cannot disagree with it about what "trusted" means.
+  #
+  # Shipped BASE64 THROUGH ARGV, not as literal source. PowerShell 5.1 strips
+  # embedded double quotes when handing a command to native ssh, so the JS
+  # arrived as require(fs) and node died on "Invalid regular expression flags"
+  # -- a failure that reads like a device problem and is not. Base64 is
+  # [A-Za-z0-9+/=] only: nothing for PowerShell or sh to reinterpret. `node -`
+  # then takes the program on stdin.
+  #
+  # Rule for anything added to this file: no double quotes inside a command
+  # passed to Sh/InContainer. Single quotes survive; double quotes do not.
   $js = 'const fs=require("fs");let c={};try{c=JSON.parse(fs.readFileSync("/home/claude/.claude.json"))}catch(e){}' +
         'const t=c.projects||{};const want=[];' +
         'try{for(const cat of fs.readdirSync("/data/claude/GIT")){const cp="/data/claude/GIT/"+cat;' +
@@ -196,7 +206,8 @@ Check 'every repo is trust-accepted (no blocking prompt)' {
         'if(fs.existsSync("/data/claude/book-writing/.git"))want.push("/data/claude/book-writing");' +
         'const m=want.filter(d=>!(t[d]&&t[d].hasTrustDialogAccepted));' +
         'console.log(want.length+" "+m.length+" "+m.slice(0,3).map(x=>x.split("/").pop()).join(","));'
-  $r = Sh "$D exec -u claude claude-term node -e '$js'"
+  $b64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($js))
+  $r = Sh "$D exec -u claude claude-term sh -c 'echo $b64 | base64 -d | node -'"
   $p = ($r.Out -split ' ')
   $want = [int]$p[0]; $miss = [int]$p[1]
   [pscustomobject]@{ ok = ($want -gt 0 -and $miss -eq 0)
@@ -358,12 +369,20 @@ Check 'device scripts match the repo' {
   # once, and the deploy rail pulled the repo without ever installing from it, so
   # the repo was the source of truth for nothing. deploy/install-device-scripts.sh
   # now closes that; this asserts it stayed closed.
+  # No double quotes anywhere: PowerShell 5.1 strips them before ssh sees them,
+  # which turned `[ "$a" = "$b" ]` into `[ $a = $b ]`. md5sum reading stdin
+  # prints "<hash>  -", so the unquoted form word-split into four tokens and
+  # every single file reported as drifted -- seven false alarms and no real ones.
+  # cut -c1-32 takes just the hash (no space-delimiter to quote), and the x$a
+  # idiom keeps the test single-token even when a file is missing entirely.
   $cmd = 'd=0; for f in dockerd-svc.sh repo-refresh.sh repo-refresh-svc.sh dropbear.sh claude-term.sh c2.sh kuma-netfix.sh; do ' +
-         'a=$(md5sum < /data/NVidiaShieldPro/docker-bringup/$f 2>/dev/null); b=$(md5sum < /data/docker/$f 2>/dev/null); ' +
-         '[ "$a" = "$b" ] || { d=$((d+1)); echo -n " $f"; }; done; echo " DRIFT=$d"'
+         'a=$(md5sum < /data/NVidiaShieldPro/docker-bringup/$f 2>/dev/null | cut -c1-32); ' +
+         'b=$(md5sum < /data/docker/$f 2>/dev/null | cut -c1-32); ' +
+         '[ x$a = x$b ] || { d=$((d+1)); echo DRIFT:$f; }; done; echo TOTAL=$d'
   $r = Sh $cmd
-  $drift = if ($r.Out -match 'DRIFT=(\d+)') { [int]$Matches[1] } else { -1 }
-  [pscustomobject]@{ ok = ($drift -eq 0); detail = $(if ($drift -eq 0) { 'in sync' } else { $r.Out.Trim() }) }
+  $drift = if ($r.Out -match 'TOTAL=(\d+)') { [int]$Matches[1] } else { -1 }
+  $names = (($r.Out -split "`n") | Where-Object { $_ -match '^DRIFT:' }) -replace '^DRIFT:', ''
+  [pscustomobject]@{ ok = ($drift -eq 0); detail = $(if ($drift -eq 0) { 'in sync' } else { "$drift drifted: $($names -join ' ')" }) }
 } | Out-Null
 
 # ---------- the real test ----------
