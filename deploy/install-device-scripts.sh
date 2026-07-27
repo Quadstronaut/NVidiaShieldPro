@@ -34,11 +34,28 @@ REPO_DIR=${REPO_DIR:-/data/NVidiaShieldPro}
 SRC="$REPO_DIR/docker-bringup"
 ROOT=/data/docker
 
-# The scripts /data/docker owns. claude-term.sh and claude-term-build.sh are here
-# so the working copy tracks the repo -- but note that redeploy.sh still does not
-# RUN claude-term.sh, because that container needs the untracked on-device env.
-FILES="dockerd-svc.sh repo-refresh.sh repo-refresh-svc.sh dropbear.sh
-       claude-term.sh claude-term-build.sh c2.sh kuma-netfix.sh cleanup.sh"
+# BOOT SERVICES -- what the device starts on its own. claude-term.sh and
+# claude-term-build.sh are here so the working copy tracks the repo, but note
+# that redeploy.sh still does not RUN claude-term.sh: that container needs the
+# untracked on-device env.
+BOOT_FILES="dockerd-svc.sh repo-refresh.sh repo-refresh-svc.sh dropbear.sh
+            claude-term.sh claude-term-build.sh c2.sh kuma-netfix.sh cleanup.sh"
+
+# OPERATOR RECIPES -- run by hand, but they are how the device gets REBUILT.
+# These lived only on /data/docker and were in no repo at all, which meant the
+# recovery procedure for a wiped Shield existed in exactly one place: the Shield.
+# gh-provision.sh is how credentials get installed, clone-all.sh is how the 55
+# repos come back, c2-build.sh and patch-image.sh are the image recipes that
+# `docker build` cannot reproduce on this kernel. Losing these is losing the
+# ability to rebuild, which is worse than losing any running service.
+#
+# Same copy-only, never-restart contract as the boot set -- these are operator
+# tools, so nothing here is ever invoked automatically.
+TOOL_FILES="gh-provision.sh clone-all.sh install-refresh.sh verify-clones.sh
+            verify-mem.sh c2-build.sh patch-image.sh postboot.sh
+            check-shield.sh ask.sh"
+
+FILES="$BOOT_FILES $TOOL_FILES"
 
 echo "=== install device scripts from $SRC ==="
 updated=0
