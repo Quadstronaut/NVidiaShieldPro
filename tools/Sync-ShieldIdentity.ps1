@@ -56,8 +56,13 @@
   Report what would change; write nothing on either side.
 
 .EXAMPLE
-  pwsh tools/Sync-ShieldIdentity.ps1 -DryRun
-  pwsh tools/Sync-ShieldIdentity.ps1
+  powershell -File tools\Sync-ShieldIdentity.ps1 -DryRun
+  powershell -File tools\Sync-ShieldIdentity.ps1
+
+.NOTES
+  Invoke with Windows PowerShell 5.1 (powershell.exe). `pwsh` is NOT installed on
+  DEVIL, and every workaround in this file -- the ASCII-only rule, the cmd.exe
+  redirection, the no-2>&1 rule -- exists because of 5.1 specifically.
 #>
 [CmdletBinding()]
 param(
@@ -74,7 +79,10 @@ $VolClaude = '/data/docker/data/volumes/claude-home/_data/.claude'
 $Stage     = Join-Path $env:TEMP "shield-identity-$(Get-Random)"
 $ChunkSize = 60000   # base64 chars per argv entry; well under MAX_ARG_STRLEN (128 KB)
 
-function Key([string]$p) { $p -replace '[^A-Za-z0-9]', '-' }
+# The key mapping now lives in ShieldKeyMap.ps1 because Test-ShieldParity.ps1
+# needs the identical rule to compare content. Two private copies would silently
+# drift, and a gate that fails on correctly-synced memory is worse than no gate.
+. (Join-Path $PSScriptRoot 'ShieldKeyMap.ps1')
 
 function Invoke-Shield([string]$Cmd) {
   $out = & ssh -o BatchMode=yes $ShieldHost $Cmd 2>&1
@@ -117,31 +125,59 @@ function Receive-File([string]$Remote, [string]$Local) {
   if ($local -ne $remote) { throw "receive corrupted: $Remote" }
 }
 
-# --- key mapping -------------------------------------------------------------
+# --- MEMORY.md merge ---------------------------------------------------------
 
-function Get-KeyMap {
-  $map = @{}
-  Get-ChildItem $RepoRoot -Directory -Recurse -Depth 2 -Force -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -eq '.git' } | ForEach-Object {
-      $rel = $_.Parent.FullName.Replace("$RepoRoot\", '') -replace '\\', '/'
-      $map[(Key "$RepoRoot\$($rel -replace '/','\')")] = (Key "/data/claude/GIT/$rel")
-    }
-  $map[(Key $RepoRoot)]                        = (Key '/data/claude/GIT')
-  $map[(Key 'G:\Documents\book-writing')]      = (Key '/data/claude/book-writing')
-  $map[(Key "$env:USERPROFILE")]               = (Key '/home/claude')
-  return $map
+function Merge-MemoryIndex {
+  <#
+    MEMORY.md is the one file BOTH sides append to, so it is the one file where
+    "DEVIL wins, discard the Shield copy" loses real data.
+
+    Every memory is two writes: the memory file itself, and a pointer line added
+    to MEMORY.md. The pull adopts files DEVIL does not have -- so a Shield-authored
+    memory file survives -- but MEMORY.md already exists on DEVIL, so the Shield's
+    version was discarded wholesale and the pointer line went with it. The memory
+    arrived on DEVIL orphaned from the index that makes it findable, which for an
+    index-loaded-at-session-start is close to not arriving at all.
+
+    Union by link target, DEVIL's ordering first, Shield-only lines appended.
+    Keyed on the [[target]] or [text](target) rather than the whole line so a
+    reworded pointer to the same memory does not duplicate.
+  #>
+  param([string]$DevilPath, [string]$ShieldPath)
+
+  if (-not (Test-Path $ShieldPath)) { return $null }
+  $shieldLines = [IO.File]::ReadAllLines($ShieldPath)
+  if (-not (Test-Path $DevilPath)) { return ($shieldLines -join "`n") }
+  $devilLines = [IO.File]::ReadAllLines($DevilPath)
+
+  function LinkKey([string]$line) {
+    if ($line -match '\[\[([^\]]+)\]\]')      { return $Matches[1].Trim().ToLower() }
+    if ($line -match '\]\(([^)]+)\)')         { return $Matches[1].Trim().ToLower() }
+    return $null
+  }
+
+  $seen = @{}
+  foreach ($l in $devilLines) { $k = LinkKey $l; if ($k) { $seen[$k] = $true } }
+
+  $added = @()
+  foreach ($l in $shieldLines) {
+    $k = LinkKey $l
+    if ($k -and -not $seen.ContainsKey($k)) { $added += $l; $seen[$k] = $true }
+  }
+  if ($added.Count -eq 0) { return $null }   # nothing Shield-only; leave DEVIL's file alone
+  return ((($devilLines -join "`n").TrimEnd()) + "`n" + ($added -join "`n"))
 }
 
 Write-Host "=== Shield identity sync ===" -ForegroundColor Cyan
 Write-Host "host: $ShieldHost   dry-run: $DryRun"
-$map    = Get-KeyMap
+$map    = Get-ShieldKeyMap -RepoRoot $RepoRoot
 $revMap = @{}; $map.GetEnumerator() | ForEach-Object { $revMap[$_.Value] = $_.Key }
 Write-Host "live path keys: $($map.Count)"
 
 New-Item -ItemType Directory -Path $Stage -Force | Out-Null
 try {
   # ========================= PULL =========================
-  $adopted = 0
+  $adopted = 0; $mergedIdx = 0
   if (-not $PushOnly) {
     Write-Host "`n--- PULL (Shield-authored memory) ---" -ForegroundColor Yellow
     $probe = Invoke-Shield "ls -d $VolClaude/projects/*/memory 2>/dev/null | wc -l"
@@ -171,6 +207,22 @@ try {
 
         foreach ($f in Get-ChildItem $srcMem -File) {
           $dst = Join-Path $dstMem $f.Name
+
+          # MEMORY.md is the sole exception to "DEVIL wins". Both sides append to
+          # it, so discarding the Shield's copy strands every memory the Shield
+          # authored: the file gets adopted, its index pointer does not.
+          if ($f.Name -eq 'MEMORY.md' -and (Test-Path $dst)) {
+            $u = Merge-MemoryIndex -DevilPath $dst -ShieldPath $f.FullName
+            if ($u) {
+              Write-Host "  merge: $devilKey/MEMORY.md (Shield-only pointer lines)"
+              if (-not $DryRun) {
+                [IO.File]::WriteAllText($dst, $u + "`n", (New-Object Text.UTF8Encoding($false)))
+              }
+              $mergedIdx++
+            }
+            continue
+          }
+
           if (Test-Path $dst) { continue }   # DEVIL wins; never overwrite
           Write-Host "  adopt: $devilKey/$($f.Name)"
           if (-not $DryRun) {
@@ -181,7 +233,7 @@ try {
         }
       }
     }
-    Write-Host "adopted from Shield: $adopted"
+    Write-Host "adopted from Shield: $adopted   MEMORY.md merged: $mergedIdx"
   }
 
   # ========================= PUSH =========================
@@ -260,7 +312,20 @@ try {
     Invoke-Shield "mkdir -p $VolClaude && tar xzf /data/.identity.tgz -C $VolClaude && chown -R 1000:1000 $VolClaude && rm -f /data/.identity.tgz" | Out-Null
 
     $check = Invoke-Shield "find $VolClaude/projects -path '*/memory/*' -type f | wc -l"
-    Write-Host "memory files now on Shield: $(([string]$check).Trim())"
+    $nMem = ([string]$check).Trim()
+    Write-Host "memory files now on Shield: $nMem"
+
+    # Freshness stamp. Without this, "is the Shield's identity current?" is
+    # unanswerable: file COUNTS can match exactly while content has drifted, so
+    # counting proves nothing. /data/claude is the same directory the repo refresh
+    # stamps (.last-refresh) -- readable by the gate over ssh AND by the
+    # in-container Claude, which is where the user actually is.
+    # ASCII, LF, no shell metacharacters: this string crosses PowerShell -> ssh ->
+    # Android sh, and every one of those hops has bitten this project before.
+    $stamp = "{0} memory={1} skills={2} agents={3}" -f `
+             (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'), $nMem, $nSkills, $nAgents
+    Invoke-Shield "echo '$stamp' > /data/claude/.last-identity-sync" | Out-Null
+    Write-Host "stamped: $stamp"
   }
 
   Write-Host "`n=== done ===" -ForegroundColor Cyan

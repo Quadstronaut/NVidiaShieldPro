@@ -21,8 +21,12 @@
   Skip the two slow checks (the `claude -p` round trip and the remote git probe).
 
 .EXAMPLE
-  pwsh tools/Test-ShieldParity.ps1
-  pwsh tools/Test-ShieldParity.ps1 -Quick
+  powershell -File tools\Test-ShieldParity.ps1
+  powershell -File tools\Test-ShieldParity.ps1 -Quick
+
+.NOTES
+  Invoke with Windows PowerShell 5.1 (powershell.exe); `pwsh` is not installed on
+  DEVIL. The ASCII-only rule and the no-2>&1 rule below are both 5.1-specific.
 #>
 [CmdletBinding()]
 param(
@@ -37,6 +41,12 @@ param(
 # string literal -- producing a parse error far from the offending character.
 
 $ErrorActionPreference = 'Stop'
+
+# Same key mapping the sync applies, so the content check below can reverse it.
+# Shared rather than reimplemented: a gate using a slightly different rule fails
+# on correctly-synced memory, and a gate that cries wolf gets ignored.
+. (Join-Path $PSScriptRoot 'ShieldKeyMap.ps1')
+
 $script:Pass = 0
 $script:Fail = 0
 $script:Failures = @()
@@ -75,6 +85,10 @@ function Sh([string]$Cmd) {
 }
 
 $D = '/data/docker/bin/docker -H unix:///data/docker/docker.sock'
+# The claude-home volume's real host path. The docker data-root is /data/docker/data,
+# not the default, and the driver is `local`, so this is a genuine host directory
+# readable over ssh without entering the container.
+$VolProjects = '/data/docker/data/volumes/claude-home/_data/.claude/projects'
 function InContainer([string]$Cmd) {
   # Single-quote the inner command so PowerShell cannot eat the quoting on the
   # way through ssh -- a repeated failure mode in this project.
@@ -163,6 +177,47 @@ Check 'book-writing present and reachable in-container' {
   [pscustomobject]@{ ok = ($r.Out -eq 'OK'); detail = $r.Out }
 } | Out-Null
 
+Check 'every repo is trust-accepted (no blocking prompt)' {
+  # THE check this whole tool existed to have and did not.
+  #
+  # An un-accepted cwd stops a claude-code session with a trust prompt before the
+  # user can type anything, and that prompt is not answerable on the
+  # tmux->browser->phone path. 54 of 55 repos were in that state while this gate
+  # reported 17/17, because nothing here ever looked. "Present on disk" and
+  # "usable" are different properties; only the second one is the point.
+  #
+  # Done in node rather than shell: it parses the same JSON claude-code reads,
+  # so it cannot disagree with it, and it needs no quoting gymnastics over ssh.
+  $js = 'const fs=require("fs");let c={};try{c=JSON.parse(fs.readFileSync("/home/claude/.claude.json"))}catch(e){}' +
+        'const t=c.projects||{};const want=[];' +
+        'try{for(const cat of fs.readdirSync("/data/claude/GIT")){const cp="/data/claude/GIT/"+cat;' +
+        'if(!fs.statSync(cp).isDirectory())continue;' +
+        'for(const r of fs.readdirSync(cp)){const rp=cp+"/"+r;if(fs.existsSync(rp+"/.git"))want.push(rp)}}}catch(e){}' +
+        'if(fs.existsSync("/data/claude/book-writing/.git"))want.push("/data/claude/book-writing");' +
+        'const m=want.filter(d=>!(t[d]&&t[d].hasTrustDialogAccepted));' +
+        'console.log(want.length+" "+m.length+" "+m.slice(0,3).map(x=>x.split("/").pop()).join(","));'
+  $r = Sh "$D exec -u claude claude-term node -e '$js'"
+  $p = ($r.Out -split ' ')
+  $want = [int]$p[0]; $miss = [int]$p[1]
+  [pscustomobject]@{ ok = ($want -gt 0 -and $miss -eq 0)
+                     detail = $(if ($miss -gt 0) { "$miss of $want repos WILL PROMPT (e.g. $($p[2]))" } else { "all $want trusted" }) }
+} | Out-Null
+
+Check 'every repo can push from inside the container' {
+  # Work that cannot leave the device is not work. An ssh-origin repo cannot be
+  # pushed from the container by design: the deploy keys are deliberately kept
+  # outside the container mount, so `git@github.com:` resolves to "Host key
+  # verification failed" and there is no key to offer anyway. Counting them is
+  # cheap; ls-remote on 55 remotes is not.
+  $cmd = 'n=0; b=""; for d in /data/claude/GIT/*/*/ /data/claude/book-writing/; do [ -d "$d/.git" ] || continue; ' +
+         'case "$(git -C "$d" remote get-url origin 2>/dev/null)" in git@*|ssh://*) n=$((n+1)); b="$b $(basename $d)";; esac; done; echo "$n$b"'
+  $r = InContainer $cmd
+  $parts = $r.Out.Trim() -split '\s+'
+  $n = [int]$parts[0]
+  [pscustomobject]@{ ok = ($n -eq 0)
+                     detail = $(if ($n -gt 0) { "$n repo(s) on ssh origins, unpushable here:$($r.Out.Trim().Substring($parts[0].Length))" } else { 'all origins usable' }) }
+} | Out-Null
+
 # ---------- identity ----------
 Write-Host ''
 Write-Host 'identity' -ForegroundColor Yellow
@@ -175,6 +230,52 @@ Check "memory file count >= DEVIL ($wantMem)" {
   $got = [int]($r.Out.Trim())
   [pscustomobject]@{ ok = ($got -ge $wantMem); detail = "shield=$got devil=$wantMem" }
 } | Out-Null
+
+if (-not $Quick) {
+  Check 'memory CONTENT matches, not just the count' {
+    # Counting proved nothing. On 2026-07-26 this gate read shield=625 devil=625
+    # and passed, while six DEVIL memory files had newer content the Shield had
+    # never seen -- because the sync had not run since the day it was written and
+    # nothing measured content. Equal counts are exactly what drift looks like
+    # once both sides have stopped gaining files.
+    #
+    # Compare a path->md5 map. All normalisation happens here, on one side, in one
+    # language: the device only runs md5sum. Doing the sorting or hashing on both
+    # sides invites a spurious mismatch from locale collation or line endings.
+    $r = Sh "cd $VolProjects && find . -path '*/memory/*' -type f | xargs md5sum"
+    if ($r.Rc -ne 0) { return [pscustomobject]@{ ok = $false; detail = 'could not read device manifest' } }
+
+    $shield = @{}
+    foreach ($line in ($r.Out -split "`n")) {
+      if ($line -match '^\s*([0-9a-f]{32})\s+\./(.+)$') { $shield[$Matches[2].Trim()] = $Matches[1] }
+    }
+
+    $map = Get-ShieldKeyMap -RepoRoot $RepoRoot
+    $devil = @{}
+    foreach ($pd in Get-ChildItem (Join-Path $ClaudeHome 'projects') -Directory) {
+      $mem = Join-Path $pd.FullName 'memory'
+      if (-not (Test-Path $mem)) { continue }
+      $sk = if ($map.ContainsKey($pd.Name)) { $map[$pd.Name] } else { "_archive-$($pd.Name)" }
+      foreach ($f in Get-ChildItem $mem -File) {
+        $devil["$sk/memory/$($f.Name)"] = (Get-FileHash $f.FullName -Algorithm MD5).Hash.ToLower()
+      }
+    }
+
+    # Shield-only files are NOT a failure: those are memories the Shield authored
+    # and the next pull will adopt. Only missing-or-stale on the device is drift.
+    $missing = @($devil.Keys | Where-Object { -not $shield.ContainsKey($_) })
+    $stale   = @($devil.Keys | Where-Object { $shield.ContainsKey($_) -and $shield[$_] -ne $devil[$_] })
+    $extra   = @($shield.Keys | Where-Object { -not $devil.ContainsKey($_) })
+
+    $bad = $missing.Count + $stale.Count
+    $detail = if ($bad -eq 0) {
+      "$($devil.Count) files identical" + $(if ($extra.Count) { ", $($extra.Count) shield-authored" } else { '' })
+    } else {
+      "$($stale.Count) stale, $($missing.Count) missing (e.g. $(@($stale + $missing)[0]))"
+    }
+    [pscustomobject]@{ ok = ($bad -eq 0); detail = $detail }
+  } | Out-Null
+}
 
 Check 'this project key resolves and holds memory' {
   # If key remapping regresses, memory is present but never recalled -- which is
@@ -211,6 +312,45 @@ Check 'repo refresh ran within 48h' {
   try { $age = (Get-Date).ToUniversalTime() - [datetime]::Parse($stampText).ToUniversalTime() }
   catch { return [pscustomobject]@{ ok = $false; detail = "unparseable: $($r.Out)" } }
   [pscustomobject]@{ ok = ($age.TotalHours -lt 48); detail = "$([math]::Round($age.TotalHours,1))h ago" }
+} | Out-Null
+
+Check 'identity sync ran within 48h' {
+  # The repo refresh had a stamp and an age assertion from the start; the identity
+  # rail had neither, so "when did the Shield last learn anything from DEVIL?" was
+  # unanswerable and the answer turned out to be "once, a day and a half ago, by
+  # hand". Same stamp, same window, same directory.
+  $r = Sh 'cat /data/claude/.last-identity-sync 2>/dev/null | head -1'
+  if (-not $r.Out) { return [pscustomobject]@{ ok = $false; detail = 'never run (no stamp)' } }
+  $stampText = ($r.Out -split ' ')[0]
+  try { $age = (Get-Date).ToUniversalTime() - [datetime]::Parse($stampText).ToUniversalTime() }
+  catch { return [pscustomobject]@{ ok = $false; detail = "unparseable: $($r.Out)" } }
+  [pscustomobject]@{ ok = ($age.TotalHours -lt 48); detail = "$([math]::Round($age.TotalHours,1))h ago" }
+} | Out-Null
+
+Check 'exactly one refresh supervisor (no stacked loops)' {
+  # repo-refresh-svc.sh is setsid'd, so it has its own session and survives an init
+  # restart of the dockerd service -- and dockerd-svc.sh used to respawn it
+  # unconditionally. boot.log records three dockerd-svc starts inside two minutes,
+  # so this stacked in practice. Two loops means two concurrent `git fetch` passes
+  # over the same 55 clones: .git/index.lock collisions, one interleaved log, and a
+  # race to write .last-refresh -- after which the freshness check above happily
+  # reads a stamp from a refresh that never coherently completed.
+  $r = Sh "/data/docker/bin/busybox ps -ef | grep '[r]epo-refresh-svc' | wc -l"
+  $n = [int]($r.Out.Trim())
+  [pscustomobject]@{ ok = ($n -eq 1); detail = $(if ($n -eq 1) { '1 loop' } else { "$n loops (want exactly 1)" }) }
+} | Out-Null
+
+Check 'device scripts match the repo' {
+  # /data/docker/*.sh are what the device actually boots. They were hand-copied
+  # once, and the deploy rail pulled the repo without ever installing from it, so
+  # the repo was the source of truth for nothing. deploy/install-device-scripts.sh
+  # now closes that; this asserts it stayed closed.
+  $cmd = 'd=0; for f in dockerd-svc.sh repo-refresh.sh repo-refresh-svc.sh dropbear.sh claude-term.sh c2.sh kuma-netfix.sh; do ' +
+         'a=$(md5sum < /data/NVidiaShieldPro/docker-bringup/$f 2>/dev/null); b=$(md5sum < /data/docker/$f 2>/dev/null); ' +
+         '[ "$a" = "$b" ] || { d=$((d+1)); echo -n " $f"; }; done; echo " DRIFT=$d"'
+  $r = Sh $cmd
+  $drift = if ($r.Out -match 'DRIFT=(\d+)') { [int]$Matches[1] } else { -1 }
+  [pscustomobject]@{ ok = ($drift -eq 0); detail = $(if ($drift -eq 0) { 'in sync' } else { $r.Out.Trim() }) }
 } | Out-Null
 
 # ---------- the real test ----------

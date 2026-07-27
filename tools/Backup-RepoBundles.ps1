@@ -25,21 +25,32 @@
   survivable. Prevention costs money (GitHub Pro) and is a separate decision.
 
 .PARAMETER Destination
-  Where bundles are written. Default is a sibling of the repo tree.
-  IMPORTANT: the default sits on the SAME physical drive as the repos, so it
-  protects against a rewritten remote but NOT against losing G:. Point this at
-  an external drive or a second machine to cover both.
+  Where bundles are written. Default is B:\BAKS\repo-bundles.
+
+  The default used to be G:\Documents\_repo-bundles, which was wrong: it sat on
+  the SAME physical disk as the repos it protected, so it covered a rewritten
+  remote but not a dead drive -- and those are the two failure modes it exists
+  for. B: is physical disk 0 (ST4000DM000, 4 TB); G: is disk 3 (WDC NVMe), so the
+  default now survives losing either one.
+
+  It is also deliberately NOT under G:\Documents, so the Backup-Documents
+  robocopy /MIR job does not duplicate multi-GB bundles onto the same B: volume
+  they already live on.
 
 .PARAMETER Keep
   How many dated snapshots to retain per repo. Default 3.
 
 .EXAMPLE
-  pwsh tools/Backup-RepoBundles.ps1
-  pwsh tools/Backup-RepoBundles.ps1 -Destination E:\repo-bundles -Keep 5
+  powershell -File tools\Backup-RepoBundles.ps1
+  powershell -File tools\Backup-RepoBundles.ps1 -Destination D:\repo-bundles -Keep 5
+
+.NOTES
+  Invoke with Windows PowerShell 5.1 (powershell.exe); `pwsh` is not installed
+  on DEVIL. The no-2>&1 rule below is a 5.1-specific hazard.
 #>
 [CmdletBinding()]
 param(
-  [string]$Destination = 'G:\Documents\_repo-bundles',
+  [string]$Destination = 'B:\BAKS\repo-bundles',
   [int]$Keep = 3,
   [string]$Root = 'G:\Documents\GIT',
   [string[]]$ExtraRepo = @('G:\Documents\book-writing')
