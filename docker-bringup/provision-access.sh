@@ -40,6 +40,21 @@ else
   echo "gh: GH_PAT not set — skipping GitHub auth (SSH setup still runs)"
 fi
 
+# Make the PAT serve repos whose origin is an SSH URL. The deploy keys live at
+# /data/.ssh on the HOST, deliberately outside the container mount, so a
+# `git@github.com:` origin in here has no key to offer and no known_hosts to
+# check: it fails with "Host key verification failed". book-writing -- the repo
+# the user moved onto the Shield specifically to write on -- was in exactly that
+# state, readable and editable but impossible to fetch or push.
+#
+# A rewrite rule, NOT edited origins. Editing each repo's origin to https would
+# break the host-side /data/book-git.sh, which drives the same repo through its
+# own alpine/git container using the deploy key and never sees this config. This
+# way both transports keep working, no repository is mutated, and every ssh
+# origin that ever appears is covered rather than the ones someone noticed.
+git config --global url."https://github.com/".insteadOf "git@github.com:"
+echo "git: ssh->https rewrite active ($(git config --global --get url.https://github.com/.insteadOf))"
+
 # --- 2) dedicated SSH keys (atomic + idempotent, no TOCTOU) -------------------------
 # mkdir is an atomic lock; generate to a unique temp name then atomically rename, so
 # two concurrent runs can never both create a key (the race the council reproduced).

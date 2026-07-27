@@ -203,20 +203,33 @@ Check 'every repo is trust-accepted (no blocking prompt)' {
                      detail = $(if ($miss -gt 0) { "$miss of $want repos WILL PROMPT (e.g. $($p[2]))" } else { "all $want trusted" }) }
 } | Out-Null
 
-Check 'every repo can push from inside the container' {
-  # Work that cannot leave the device is not work. An ssh-origin repo cannot be
-  # pushed from the container by design: the deploy keys are deliberately kept
-  # outside the container mount, so `git@github.com:` resolves to "Host key
-  # verification failed" and there is no key to offer anyway. Counting them is
-  # cheap; ls-remote on 55 remotes is not.
-  $cmd = 'n=0; b=""; for d in /data/claude/GIT/*/*/ /data/claude/book-writing/; do [ -d "$d/.git" ] || continue; ' +
-         'case "$(git -C "$d" remote get-url origin 2>/dev/null)" in git@*|ssh://*) n=$((n+1)); b="$b $(basename $d)";; esac; done; echo "$n$b"'
-  $r = InContainer $cmd
-  $parts = $r.Out.Trim() -split '\s+'
-  $n = [int]$parts[0]
-  [pscustomobject]@{ ok = ($n -eq 0)
-                     detail = $(if ($n -gt 0) { "$n repo(s) on ssh origins, unpushable here:$($r.Out.Trim().Substring($parts[0].Length))" } else { 'all origins usable' }) }
+Check 'ssh origins are rewritten to https for the PAT' {
+  # Work that cannot leave the device is not work, and book-writing -- the repo
+  # the user explicitly moved here to write on -- could not fetch or push from
+  # inside the container: "Host key verification failed". Its origin is
+  # git@github.com:, and the deploy keys are deliberately kept OUTSIDE the
+  # container mount, so there was no key to offer and no known_hosts to check.
+  #
+  # The fix is a container-scoped insteadOf rewrite, NOT editing origins.
+  # Rewriting each repo's stored origin to https would have broken the host-side
+  # /data/book-git.sh, which drives the SAME repo through alpine/git with the
+  # deploy key -- that path is a different container with its own config and
+  # never sees this rule. One rule, both transports intact, no repo mutated, and
+  # it covers every ssh origin that ever appears rather than the ones we noticed.
+  $r = InContainer 'git config --global --get url.https://github.com/.insteadOf'
+  [pscustomobject]@{ ok = ($r.Out.Trim() -eq 'git@github.com:'); detail = $(if ($r.Out) { $r.Out.Trim() } else { 'RULE MISSING - ssh-origin repos cannot push' }) }
 } | Out-Null
+
+if (-not $Quick) {
+  Check 'book-writing actually reachable from in-container' {
+    # The end-to-end proof of the rule above, on the repo that was broken. Checked
+    # by ls-remote rather than by config, because "the setting is present" and
+    # "the network call succeeds" are different claims and only the second is the
+    # one the user cares about.
+    $r = InContainer 'git -C /data/claude/book-writing ls-remote --heads origin >/dev/null 2>&1 && echo OK || echo FAIL'
+    [pscustomobject]@{ ok = ($r.Out -eq 'OK'); detail = $r.Out }
+  } | Out-Null
+}
 
 # ---------- identity ----------
 Write-Host ''
