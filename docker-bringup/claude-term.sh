@@ -12,7 +12,16 @@
 set -e
 
 HERE=$(dirname "$0")
-[ -f "$HERE/claude-term.env" ] && . "$HERE/claude-term.env"
+# This script exists in TWO places on the device: the repo checkout at
+# /data/NVidiaShieldPro/docker-bringup/ (pulled by deploy/) and the working copy
+# at /data/docker/. The untracked env file -- secret + OAuth token -- only ever
+# sits beside the SECOND one. Sourcing relative to $0 alone therefore meant that
+# running the repo copy loaded no credentials at all, and the script's first real
+# action below is `docker rm -f claude-term`. Search both, and record which won.
+ENV_SRC=""
+for _c in "$HERE/claude-term.env" /data/docker/claude-term.env; do
+  if [ -f "$_c" ]; then . "$_c"; ENV_SRC="$_c"; break; fi
+done
 
 BB=/data/docker/bin/busybox
 DOCKER="/data/docker/bin/docker -H unix:///data/docker/docker.sock"
@@ -28,7 +37,20 @@ NO_AUTH=${CLAUDE_TERM_NO_AUTH:-1}
 if [ "$NO_AUTH" != "1" ] && [ -z "$CLAUDE_TERM_SECRET" ]; then
   echo "FATAL: auth enabled but CLAUDE_TERM_SECRET unset"; exit 1
 fi
-[ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || echo "WARN: CLAUDE_CODE_OAUTH_TOKEN empty — Claude will demand /login (R3)"
+# FATAL, not a warning, and checked HERE -- before the `docker rm -f` below.
+# As a warning this was a live footgun: re-running the script from the repo copy
+# tore down a working, authenticated container and replaced it with one that
+# demands /login (R3), with no obvious way back. Refusing to start is strictly
+# better than destroying the thing that worked. Set CLAUDE_TERM_ALLOW_NO_TOKEN=1
+# for a genuine first bringup, where there is no container to lose.
+if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ "${CLAUDE_TERM_ALLOW_NO_TOKEN:-0}" != "1" ]; then
+  echo "FATAL: CLAUDE_CODE_OAUTH_TOKEN is empty (env sourced from: ${ENV_SRC:-NONE})."
+  echo "  looked for: $HERE/claude-term.env and /data/docker/claude-term.env"
+  echo "  refusing to replace the running container with one that cannot authenticate."
+  echo "  first-time bringup with no container to lose: CLAUDE_TERM_ALLOW_NO_TOKEN=1 sh $0"
+  exit 1
+fi
+echo "env sourced from: ${ENV_SRC:-NONE}"
 
 echo "=== dockerd reachable? ==="
 $DOCKER version --format 'server {{.Server.Version}}' || { echo "FATAL: dockerd not responding"; exit 1; }
@@ -81,8 +103,19 @@ $DOCKER run -d \
 # tmux->browser->mobile path). IDEMPOTENT: only fills MISSING keys, never
 # clobbers the user's later choices. Version-sensitive (claude-code field
 # names) -> guarded; a no-op just means a one-time prompt, not a failure.
+#
+# DEPTH MATTERS. This originally walked one level of /data/claude/GIT, which was
+# right when clones were flat. Phase 2 moved them to GIT/<CATEGORY>/<repo>, so
+# one level started returning CATEGORY directories -- which are not repos and are
+# never a cwd. The result: 54 of 55 repositories had no trust record, and the one
+# that did was added by hand. Walk BOTH levels, and book-writing, which lives
+# outside GIT/ on purpose.
+#
+# This is the single most user-visible fix in the stack: an untrusted cwd stops a
+# session before the user can type anything, and the prompt is not answerable on
+# a phone. Do not "simplify" this back to one level.
 echo "=== seed first-run state into ~/.claude.json (idempotent) ==="
-$DOCKER exec $NAME node -e 'const fs=require("fs"),p="/home/claude/.claude.json";let c={};try{c=JSON.parse(fs.readFileSync(p))}catch(e){}let ch=false;if(!c.hasCompletedOnboarding){c.hasCompletedOnboarding=true;ch=true}if(!c.theme){c.theme="dark-ansi";ch=true}if(!c.bypassPermissionsModeAccepted){c.bypassPermissionsModeAccepted=true;ch=true}c.projects=c.projects||{};const dirs=["/data/claude"];try{for(const d of fs.readdirSync("/data/claude/GIT"))dirs.push("/data/claude/GIT/"+d)}catch(e){}for(const d of dirs){if(!c.projects[d]||!c.projects[d].hasTrustDialogAccepted){c.projects[d]=Object.assign({},c.projects[d]||{},{hasTrustDialogAccepted:true});ch=true}}if(ch){fs.writeFileSync(p,JSON.stringify(c,null,2));console.log("seeded")}else{console.log("already seeded")}' 2>/dev/null || echo "  (seed skipped: node/exec unavailable)"
+$DOCKER exec $NAME node -e 'const fs=require("fs"),p="/home/claude/.claude.json";let c={};try{c=JSON.parse(fs.readFileSync(p))}catch(e){}let ch=false;if(!c.hasCompletedOnboarding){c.hasCompletedOnboarding=true;ch=true}if(!c.theme){c.theme="dark-ansi";ch=true}if(!c.bypassPermissionsModeAccepted){c.bypassPermissionsModeAccepted=true;ch=true}c.projects=c.projects||{};const dirs=["/data/claude","/data/claude/GIT","/data/claude/book-writing"];try{for(const cat of fs.readdirSync("/data/claude/GIT")){const cp="/data/claude/GIT/"+cat;if(!fs.statSync(cp).isDirectory())continue;dirs.push(cp);try{for(const r of fs.readdirSync(cp)){const rp=cp+"/"+r;if(fs.statSync(rp).isDirectory())dirs.push(rp)}}catch(e){}}}catch(e){}let n=0;for(const d of dirs){if(!c.projects[d]||!c.projects[d].hasTrustDialogAccepted){c.projects[d]=Object.assign({},c.projects[d]||{},{hasTrustDialogAccepted:true});ch=true;n++}}if(ch){fs.writeFileSync(p,JSON.stringify(c,null,2));console.log("seeded "+n+" new of "+dirs.length+" paths")}else{console.log("already seeded ("+dirs.length+" paths)")}' 2>/dev/null || echo "  (seed skipped: node/exec unavailable)"
 
 echo "=== container state ==="
 $DOCKER ps --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
