@@ -2,8 +2,7 @@ import { loadConfig, assertConfig } from './config.js';
 import { createAuth } from './auth.js';
 import { createServer } from './http.js';
 import { createHub } from './hub.js';
-import { readdir } from 'node:fs/promises';
-import path from 'node:path';
+import { listDirs } from './dirs.js';
 
 const config = assertConfig(loadConfig()); // throws + exits non-zero if no secret (I1/AC1)
 const auth = createAuth(config.secret);
@@ -13,16 +12,6 @@ const auth = createAuth(config.secret);
 // session (NI4) — there is no per-session enable.
 const hub = createHub({ workspace: config.workspace, skipPermissions: config.skipPermissions });
 
-async function listDirs(workspace) {
-  // Always offer the workspace root first so the new-session picker is never empty.
-  const dirs = [workspace];
-  try {
-    const ents = await readdir(workspace, { withFileTypes: true });
-    for (const e of ents) if (e.isDirectory()) dirs.push(path.join(workspace, e.name));
-  } catch { /* keep just the root */ }
-  return dirs;
-}
-
 const server = createServer({
   config, auth,
   deps: {
@@ -31,6 +20,9 @@ const server = createServer({
     deleteSession: (id) => hub.deleteSession(id),
     attach: (ws, id) => hub.attach(ws, id),
     hasSession: (id) => hub.hasSession(id),
+    // listDirs lives in its own module so it is testable. As an inline helper
+    // here it had no test, which is how it silently stopped matching the
+    // directory layout for a month while every other check reported green.
     listDirs,
   },
 });
