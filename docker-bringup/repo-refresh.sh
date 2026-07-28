@@ -10,9 +10,12 @@
 # diverged, stop and let a human look rather than create a merge commit nobody
 # asked for.
 #
-# book-writing is deliberately NOT refreshed here. It sits outside GIT/, rides a
-# per-repo deploy key that is intentionally kept out of the container mount, and
-# its ownership is unresolved pending the PAT-vs-deploy-key decision.
+# book-writing IS refreshed here now. It was excluded while its transport was
+# unresolved: it rode a per-repo deploy key kept outside the container mount, so
+# in-container git could not reach it at all. That is fixed -- the container
+# rewrites ssh origins to https and authenticates with the PAT -- and the whole
+# point of moving the repo onto the Shield was to work on it here. A repo the
+# device is primary for is the LAST one that should silently fall behind.
 #
 # Writes /data/claude/.last-refresh so the parity gate can assert freshness.
 set -e
@@ -21,12 +24,14 @@ D="/data/docker/bin/docker -H unix:///data/docker/docker.sock"
 $D exec -u claude claude-term sh -c '
   ok=0; skipped=0; failed=0; behind=0
   faillist=""; skiplist=""
-  for d in /data/claude/GIT/*/*/; do
+  for d in /data/claude/GIT/*/*/ /data/claude/book-writing/; do
     [ -d "$d/.git" ] || continue
     # Shell parameter expansion, NOT sed. A `sed "s#/$##"` here has its `$#`
     # expanded by the shell (argument count) before sed ever sees it, giving
     # "unterminated `s command" on every iteration.
-    rel=${d#/data/claude/GIT/}
+    # Strip /data/claude/ (not /data/claude/GIT/) so repos living outside the
+    # GIT tree get a sensible label instead of their full absolute path.
+    rel=${d#/data/claude/}
     rel=${rel%/}
 
     # never touch a repo with uncommitted work

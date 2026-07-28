@@ -1,5 +1,5 @@
 <#
-authorize-shield-keys.ps1 — run on DEVIL (which already has SSH to all three targets)
+authorize-shield-keys.ps1 -- run on DEVIL (which already has SSH to all three targets)
 to append the Shield's PUBLIC keys to the remote authorized_keys files. Only PUBLIC
 keys move; nothing secret transits. Idempotent + newline-safe.
 
@@ -16,9 +16,9 @@ Usage (paste the two pub lines printed by provision-access.sh):
     -QflixPub    'ssh-ed25519 AAAA... shield-qflix-...'
 
 Security notes (council-hardened):
-  - ssh is invoked as a native command with ARRAY args — never spliced into a cmd.exe
+  - ssh is invoked as a native command with ARRAY args -- never spliced into a cmd.exe
     string (kills the command-injection class).
-  - the pubkey is sent to the remote over STDIN and read with `KEY=$(cat)` — never
+  - the pubkey is sent to the remote over STDIN and read with `KEY=$(cat)` -- never
     interpolated into the remote command, so a key/comment can't inject either.
   - the append adds a separating newline ONLY when the file doesn't already end in one,
     so it can't corrupt the last existing line.
@@ -33,7 +33,7 @@ $ErrorActionPreference = 'Stop'
 
 # --- load topology from the untracked env file (KEY=VALUE lines) --------------------
 if (-not (Test-Path $EnvFile)) {
-  throw "missing $EnvFile — copy docker-bringup/shield-access.env.example to shield-access.env and fill it in."
+  throw "missing $EnvFile -- copy docker-bringup/shield-access.env.example to shield-access.env and fill it in."
 }
 $cfg = @{}
 foreach ($line in Get-Content $EnvFile) {
