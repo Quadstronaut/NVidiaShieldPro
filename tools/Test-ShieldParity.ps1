@@ -439,6 +439,32 @@ if (-not $Quick) {
     $r = Sh "$D exec -u claude -w /data/claude/GIT/LOCAL-mod/NVIDIAShield claude-term claude -p '$q'"
     [pscustomobject]@{ ok = ($r.Out -match 'grasp'); detail = $r.Out.Substring(0, [Math]::Min(40, $r.Out.Length)) }
   } | Out-Null
+
+  Check 'gate cleaned up after itself (no probe litter)' {
+    # Every `claude -p` above creates a real claude-code session, and claude-term
+    # lists them in the new-session dropdown. Scheduled daily, this gate was
+    # quietly adding two entries a day to the picker forever -- 44 sessions had
+    # already accumulated, almost all of them synthetic, which is its own kind of
+    # unusable. A health check that degrades the thing it checks is a bad check.
+    #
+    # Deletes ONLY transcripts whose first user message is one of this tool's own
+    # probe prompts. Matched against an explicit allowlist, so a real session can
+    # never be caught by it. Base64 through argv: no double quotes survive the
+    # PowerShell -> ssh hop.
+    $js = 'const fs=require("fs"),path=require("path");' +
+          'const P="/home/claude/.claude/projects";' +
+          'const probes=["Reply with exactly: PARITY_OK","Answer in one word only, from memory: which SSH username"];' +
+          'let n=0;' +
+          'for(const d of fs.readdirSync(P)){const dir=path.join(P,d);let st;try{st=fs.statSync(dir)}catch(e){continue}if(!st.isDirectory())continue;' +
+          'for(const f of fs.readdirSync(dir)){if(!f.endsWith(".jsonl"))continue;const fp=path.join(dir,f);' +
+          'let head="";try{head=fs.readFileSync(fp,"utf8").slice(0,4000)}catch(e){continue}' +
+          'if(probes.some(p=>head.includes(p))){try{fs.unlinkSync(fp);n++}catch(e){}}}}' +
+          'console.log("PRUNED "+n);'
+    $b64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($js))
+    $r = Sh "$D exec -u claude claude-term sh -c 'echo $b64 | base64 -d | node -'"
+    $n = if ($r.Out -match 'PRUNED (\d+)') { [int]$Matches[1] } else { -1 }
+    [pscustomobject]@{ ok = ($n -ge 0); detail = $(if ($n -ge 0) { "pruned $n probe transcript(s)" } else { "prune failed: $($r.Out)" }) }
+  } | Out-Null
 }
 
 # ---------- verdict ----------
