@@ -137,6 +137,17 @@ Check 'gh / ssh / curl / git / claude present' {
 # ---------- credentials ----------
 Write-Host ''
 Write-Host 'credentials' -ForegroundColor Yellow
+Check 'claude-term container has an OAuth token' {
+  # Checked on the RUNNING container, not the launcher script. An empty token
+  # produces a container that comes up healthy, serves the UI, and then demands
+  # /login on the first turn -- which reads as "Claude is broken", not as a
+  # provisioning miss. Presence only; the value is never printed.
+  $r = Sh "$D inspect -f '{{range .Config.Env}}{{println .}}{{end}}' claude-term"
+  $line = ($r.Out -split "`n" | Where-Object { $_ -like 'CLAUDE_CODE_OAUTH_TOKEN=*' })
+  $set = $line -and (($line -join '') -replace '^CLAUDE_CODE_OAUTH_TOKEN=', '').Trim().Length -gt 20
+  [pscustomobject]@{ ok = [bool]$set; detail = $(if ($set) { 'present' } else { 'EMPTY - Claude will demand /login on first turn' }) }
+} | Out-Null
+
 Check 'gh authenticates' {
   $r = InContainer 'gh api user -q .login'
   [pscustomobject]@{ ok = ($r.Out -eq 'Quadstronaut'); detail = $r.Out }
