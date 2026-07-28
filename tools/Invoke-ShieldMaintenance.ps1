@@ -125,6 +125,14 @@ function Invoke-Tool([string]$Name, [string]$Script, [string[]]$ToolArgs) {
 
 Write-Log "===== shield maintenance start ====="
 
+# ---------- 0. self-test the one destructive code path ------------------------
+# The MEMORY.md merge decides whether a memory the Shield authored survives the
+# trip back to DEVIL, and it only fires when the Shield has actually written
+# something -- so it can sit unexercised for weeks and then run, once, against
+# real data. It costs about a second to prove it still works first. Run BEFORE
+# the sync: a broken merge must never touch the real memory tree.
+Invoke-Tool 'memory-merge-test' 'Test-MemoryMerge.ps1' @() | Out-Null
+
 # ---------- 1. bundles: PC-only, so it runs whether or not the Shield is up ----
 if (-not $SkipBundles) { Invoke-Tool 'bundles' 'Backup-RepoBundles.ps1' @() | Out-Null }
 else                   { Write-Log '  bundles                SKIPPED (-SkipBundles)' }

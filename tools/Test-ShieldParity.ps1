@@ -258,6 +258,18 @@ Check 'ssh origins are rewritten to https for the PAT' {
 } | Out-Null
 
 if (-not $Quick) {
+  Check 'GitHub grants push on the repos that matter' {
+    # ls-remote proves READ. Write is a separate GitHub ACL question, and a gate
+    # must not answer it by actually pushing. gh api reports the permission
+    # directly, which is exact and mutates nothing. book-writing is included
+    # because the device is meant to be primary for it.
+    $cmd = 'for r in NVidiaShieldPro book-writing; do gh api repos/Quadstronaut/$r -q .permissions.push 2>/dev/null || echo err; done'
+    $r = InContainer $cmd
+    $vals = @($r.Out -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $ok = ($vals.Count -ge 2 -and ($vals | Where-Object { $_ -ne 'true' }).Count -eq 0)
+    [pscustomobject]@{ ok = $ok; detail = "push=$($vals -join ',')" }
+  } | Out-Null
+
   Check 'book-writing actually reachable from in-container' {
     # The end-to-end proof of the rule above, on the repo that was broken. Checked
     # by ls-remote rather than by config, because "the setting is present" and

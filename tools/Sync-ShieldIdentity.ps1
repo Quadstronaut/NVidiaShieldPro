@@ -83,6 +83,7 @@ $ChunkSize = 60000   # base64 chars per argv entry; well under MAX_ARG_STRLEN (1
 # needs the identical rule to compare content. Two private copies would silently
 # drift, and a gate that fails on correctly-synced memory is worse than no gate.
 . (Join-Path $PSScriptRoot 'ShieldKeyMap.ps1')
+. (Join-Path $PSScriptRoot 'MemoryMerge.ps1')
 
 function Invoke-Shield([string]$Cmd) {
   $out = & ssh -o BatchMode=yes $ShieldHost $Cmd 2>&1
@@ -125,48 +126,10 @@ function Receive-File([string]$Remote, [string]$Local) {
   if ($local -ne $remote) { throw "receive corrupted: $Remote" }
 }
 
-# --- MEMORY.md merge ---------------------------------------------------------
-
-function Merge-MemoryIndex {
-  <#
-    MEMORY.md is the one file BOTH sides append to, so it is the one file where
-    "DEVIL wins, discard the Shield copy" loses real data.
-
-    Every memory is two writes: the memory file itself, and a pointer line added
-    to MEMORY.md. The pull adopts files DEVIL does not have -- so a Shield-authored
-    memory file survives -- but MEMORY.md already exists on DEVIL, so the Shield's
-    version was discarded wholesale and the pointer line went with it. The memory
-    arrived on DEVIL orphaned from the index that makes it findable, which for an
-    index-loaded-at-session-start is close to not arriving at all.
-
-    Union by link target, DEVIL's ordering first, Shield-only lines appended.
-    Keyed on the [[target]] or [text](target) rather than the whole line so a
-    reworded pointer to the same memory does not duplicate.
-  #>
-  param([string]$DevilPath, [string]$ShieldPath)
-
-  if (-not (Test-Path $ShieldPath)) { return $null }
-  $shieldLines = [IO.File]::ReadAllLines($ShieldPath)
-  if (-not (Test-Path $DevilPath)) { return ($shieldLines -join "`n") }
-  $devilLines = [IO.File]::ReadAllLines($DevilPath)
-
-  function LinkKey([string]$line) {
-    if ($line -match '\[\[([^\]]+)\]\]')      { return $Matches[1].Trim().ToLower() }
-    if ($line -match '\]\(([^)]+)\)')         { return $Matches[1].Trim().ToLower() }
-    return $null
-  }
-
-  $seen = @{}
-  foreach ($l in $devilLines) { $k = LinkKey $l; if ($k) { $seen[$k] = $true } }
-
-  $added = @()
-  foreach ($l in $shieldLines) {
-    $k = LinkKey $l
-    if ($k -and -not $seen.ContainsKey($k)) { $added += $l; $seen[$k] = $true }
-  }
-  if ($added.Count -eq 0) { return $null }   # nothing Shield-only; leave DEVIL's file alone
-  return ((($devilLines -join "`n").TrimEnd()) + "`n" + ($added -join "`n"))
-}
+# Merge-MemoryIndex lives in MemoryMerge.ps1 so Test-MemoryMerge.ps1 can exercise
+# it. Inside this script it could only be tested by running a full device sync,
+# which means in practice it would never have been tested at all -- and it is the
+# one path that decides whether Shield-authored memory survives.
 
 Write-Host "=== Shield identity sync ===" -ForegroundColor Cyan
 Write-Host "host: $ShieldHost   dry-run: $DryRun"
@@ -333,3 +296,10 @@ try {
 finally {
   if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force -ErrorAction SilentlyContinue }
 }
+
+# Explicit exit-code contract, because a scheduled caller has nothing else to go
+# on: 0 means the identity on the Shield is current, non-zero means it is not.
+# Every failure path above is a `throw` under $ErrorActionPreference='Stop', and
+# an uncaught throw from `powershell -File` already exits non-zero -- this makes
+# the success half just as deliberate rather than "whatever fell out the bottom".
+exit 0

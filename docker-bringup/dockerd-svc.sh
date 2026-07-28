@@ -6,11 +6,19 @@ BIN=/data/docker/bin
 ROOT=/data/docker
 BB=$BIN/busybox
 export PATH=$BIN:/system/bin:/system/xbin
-# Rotate BEFORE redirecting: this log is append-only across every boot and every
-# crash-restart, and nothing else ever truncates it. Cheap, and it keeps an
-# always-on box from growing an unbounded file for years.
-[ -f $ROOT/boot.log ] && [ "$($BB stat -c %s $ROOT/boot.log 2>/dev/null || echo 0)" -gt 1048576 ] && \
-  $BB mv $ROOT/boot.log $ROOT/boot.log.1
+# Rotate BEFORE redirecting: these logs are append-only across every boot and
+# every crash-restart, and nothing else ever truncates them. Cheap, and it keeps
+# an always-on box from growing unbounded files for years.
+#
+# dockerd.log is rotated HERE rather than anywhere else because this is the only
+# moment it is not held open: nsstart.sh below appends to it for the entire life
+# of the daemon. Renaming it while dockerd runs would leave the daemon writing
+# to an unlinked inode and the "new" log permanently empty.
+for L in boot.log dockerd.log; do
+  if [ -f "$ROOT/$L" ] && [ "$($BB stat -c %s "$ROOT/$L" 2>/dev/null || echo 0)" -gt 4194304 ]; then
+    $BB mv "$ROOT/$L" "$ROOT/$L.1"
+  fi
+done
 exec >> /data/docker/boot.log 2>&1
 echo "===== dockerd-svc start $($BB date 2>/dev/null) ====="
 
