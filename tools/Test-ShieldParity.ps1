@@ -214,6 +214,21 @@ Check 'every repo is trust-accepted (no blocking prompt)' {
                      detail = $(if ($miss -gt 0) { "$miss of $want repos WILL PROMPT (e.g. $($p[2]))" } else { "all $want trusted" }) }
 } | Out-Null
 
+Check 'new-session picker can reach every repo' {
+  # The actual reason "use my Claude on the Shield" did not work, and nothing
+  # here ever looked. /api/dirs is what the phone UI offers as a working
+  # directory; it returned six entries, of which exactly one was a git repo and
+  # none were among the 55 projects. Everything else was green at the time.
+  #
+  # Asserted against the live HTTP endpoint rather than the source, because what
+  # matters is what the running container serves to the browser.
+  $want = [int](Sh 'find /data/claude/GIT -maxdepth 3 -name .git -type d | wc -l').Out.Trim()
+  try { $dirs = Invoke-RestMethod "http://10.0.0.88:7777/api/dirs" -TimeoutSec 15 } catch { $dirs = @() }
+  $repoish = @($dirs | Where-Object { $_ -like '/data/claude/GIT/*/*' })
+  [pscustomobject]@{ ok = ($repoish.Count -ge $want -and $want -gt 0)
+                     detail = "picker offers $($repoish.Count) of $want repos ($($dirs.Count) entries total)" }
+} | Out-Null
+
 Check 'ssh origins are rewritten to https for the PAT' {
   # Work that cannot leave the device is not work, and book-writing -- the repo
   # the user explicitly moved here to write on -- could not fetch or push from
