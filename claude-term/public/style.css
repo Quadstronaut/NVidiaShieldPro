@@ -151,3 +151,45 @@ body { display: flex; flex-direction: column; height: 100dvh; }
 #input:focus { outline: none; border-color: var(--accent-dim); }
 
 .empty { color: var(--muted); text-align: center; margin: auto; padding: 24px; }
+
+/* ---- working-dir picker ---- */
+/* Replaces a prompt() that could not reach any of the 55 repos. Sized so the
+   list is the tallest element on a phone and every row is a comfortable tap
+   target; the panel is capped rather than the page, so the list scrolls and the
+   filter and Cancel stay put. */
+#dirpick {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(0,0,0,.6);
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 12px; padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+@media (min-height: 620px) { #dirpick { align-items: center; } }
+.dp-panel {
+  display: flex; flex-direction: column; gap: 8px;
+  width: 100%; max-width: 560px; max-height: 80dvh;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 10px;
+}
+.dp-filter {
+  flex: none; background: var(--bg2); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px; font-size: 16px;   /* >=16px or iOS zooms the page on focus */
+}
+.dp-list { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.dp-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  width: 100%; text-align: left; cursor: pointer;
+  background: none; color: var(--fg);
+  border: 0; border-bottom: 1px solid var(--line);
+  padding: 11px 8px; font: inherit;
+}
+.dp-item:active { background: var(--bg2); }
+.dp-name { font-weight: 600; word-break: break-word; }
+.dp-path { font-family: var(--mono); font-size: 11px; color: var(--muted); word-break: break-all; }
+.dp-none { color: var(--muted); padding: 14px 8px; }
+.dp-cancel {
+  flex: none; background: var(--bg2); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 11px; font-size: 15px; cursor: pointer;
+}
+.dp-cancel:active { background: var(--line); }

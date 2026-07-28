@@ -225,13 +225,87 @@ async function loadSessions(select) {
   if (select) elSessions.value = select;
   if (elSessions.value) connect(elSessions.value);
 }
+/* ---------------- working-dir picker ---------------- */
+// This was a browser prompt() asking for a numeric index into a newline-joined
+// list. Three things were wrong with it on a phone, and together they meant
+// there was no way to start a session in a repo at all:
+//   - 55+ entries do not fit in a prompt() dialog, and it is not scrollable.
+//   - Answering with anything but a valid index fell through `dirs[+pick] ||
+//     dirs[0]`, so typing a real path gave NaN -> undefined -> the workspace
+//     root. The session opened in the wrong place with no error.
+//   - Typing a 2-digit number against an unreadable text blob is not a
+//     touchscreen interaction.
+// A tap list with a filter is. Plain DOM, no deps; the page ships no framework.
+function pickDir(dirs) {
+  return new Promise((resolve) => {
+    const root = dirs[0];
+    const label = (d) => (d === root ? d : d.startsWith(root + '/') ? d.slice(root.length + 1) : d);
+
+    const ov = document.createElement('div');
+    ov.id = 'dirpick';
+    const panel = document.createElement('div');
+    panel.className = 'dp-panel';
+
+    const filter = document.createElement('input');
+    filter.className = 'dp-filter';
+    filter.placeholder = 'Filter ' + dirs.length + ' locations…';
+    filter.autocomplete = 'off';
+    // Deliberately NOT autofocused: on a phone that raises the keyboard and
+    // covers the list the user opened this to tap.
+
+    const list = document.createElement('div');
+    list.className = 'dp-list';
+
+    const cancel = document.createElement('button');
+    cancel.className = 'dp-cancel';
+    cancel.textContent = 'Cancel';
+
+    const onKey = (e) => { if (e.key === 'Escape') close(null); };
+    function close(v) {
+      ov.remove();
+      document.removeEventListener('keydown', onKey);
+      resolve(v);
+    }
+
+    function render() {
+      const q = filter.value.trim().toLowerCase();
+      list.textContent = '';
+      const shown = q ? dirs.filter((d) => label(d).toLowerCase().includes(q)) : dirs;
+      if (!shown.length) {
+        const n = document.createElement('div');
+        n.className = 'dp-none'; n.textContent = 'no match';
+        list.appendChild(n);
+        return;
+      }
+      for (const d of shown) {
+        const b = document.createElement('button');
+        b.className = 'dp-item';
+        const t = document.createElement('span'); t.className = 'dp-name'; t.textContent = label(d);
+        const s = document.createElement('span'); s.className = 'dp-path'; s.textContent = d;
+        b.append(t, s);
+        b.onclick = () => close(d);
+        list.appendChild(b);
+      }
+    }
+
+    filter.oninput = render;
+    cancel.onclick = () => close(null);
+    ov.onclick = (e) => { if (e.target === ov) close(null); };
+    document.addEventListener('keydown', onKey);
+
+    panel.append(filter, list, cancel);
+    ov.appendChild(panel);
+    document.body.appendChild(ov);
+    render();
+  });
+}
+
 async function newSession() {
   const dirs = await fetch('/api/dirs').then((r) => r.json()).catch(() => ['/data/claude']);
   let cwd = dirs[0];
   if (dirs.length > 1) {
-    const pick = prompt('Working dir:\n' + dirs.map((d, i) => i + ': ' + d).join('\n'), '0');
-    if (pick === null) return;
-    cwd = dirs[+pick] || dirs[0];
+    cwd = await pickDir(dirs);
+    if (cwd === null) return;   // cancelled -- do NOT silently open the root
   }
   const r = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cwd }) });
   if (!r.ok) { addError('could not create session'); return; }
