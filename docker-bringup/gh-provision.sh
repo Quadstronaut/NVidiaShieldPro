@@ -23,8 +23,8 @@ echo "$B64" | $D exec -i -u claude claude-term sh -c '
   gh auth login --with-token < /tmp/.ghtok
   rm -f /tmp/.ghtok
   gh auth setup-git
-  git config --global user.name  "Quadstronaut"
-  git config --global user.email "2138096+Quadstronaut@users.noreply.github.com"
+  git config --global user.name  "${GIT_USER_NAME:-Quadstronaut}"
+  git config --global user.email "${GIT_USER_EMAIL:-2138096+Quadstronaut@users.noreply.github.com}"
   git config --global core.autocrlf false
   git config --global init.defaultBranch master
   chmod 600 ~/.config/gh/hosts.yml 2>/dev/null || true
