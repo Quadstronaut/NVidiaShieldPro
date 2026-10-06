@@ -20,7 +20,7 @@ This is the design spec for the `shield-c2` service, which is built and running 
 
 - **D1 — Adapter: `@sveltejs/adapter-node`.** The C2 backend needs a server runtime inside the container to open the unix docker socket, read bind-mounted `/proc`+`/sys`, and hold the SSE stream. One Node process serves UI + `+server.ts` API. `hooks.server.ts` is the single request chokepoint.
 - **D2 — Live updates: Server-Sent Events (SSE)** over `GET /api/stream`, default cadence 2 s (`SHIELD_C2_INTERVAL_MS`, floor 1000). One long-lived HTTP/1.1 response, native `EventSource` auto-reconnect, trivially `curl -N`-testable. **A single shared server-side sampler** reads `/proc`/`/sys` once per tick and fans out to all clients (I7) — `/proc` reads are O(1) in client count, protecting the eMMC. Websocket not used (full-duplex unneeded; commands go over POST). Polling not used (per-client read amplification).
-- **D3 — Base image: `node:20-bookworm-slim` (arm64, digest-pinned), NOT alpine.** Kernel 4.9 + musl/newer toolchains trip `ENOSYS` on absent syscalls (faccessat2 ~5.8, clone3, statx edges); glibc 2.36 (bookworm) degrades instead of hard-failing. node:20 (conservative LTS). Documented fallback `node:18-bullseye-slim` (glibc 2.31) — a swap only on a failed on-device smoke test. Multi-stage build; runtime stage carries only `build/` + production `node_modules` + `package.json`. **Size target ≤250 MB, hard ceiling 350 MB.**
+- **D3 — Base image: `node:22-bookworm-slim` (arm64, digest-pinned), NOT alpine.** Kernel 4.9 + musl/newer toolchains trip `ENOSYS` on absent syscalls (faccessat2 ~5.8, clone3, statx edges); glibc 2.36 (bookworm) degrades instead of hard-failing. node:22 (LTS; required by SvelteKit 3, Node >=22.17). Documented fallback `node:18-bullseye-slim` (glibc 2.31) — a swap only on a failed on-device smoke test. Multi-stage build; runtime stage carries only `build/` + production `node_modules` + `package.json`. **Size target ≤250 MB, hard ceiling 350 MB.**
 - **D4 — Host port: 8888** (per A1; env-overridable). Free vs Uptime-Kuma. Launcher asserts the port is free before binding.
 - **D5 — Auth posture & threat model (per A2): UNAUTHENTICATED by decision.** The docker socket = root-equivalent control of the Shield (a POST that could reach `create` + privileged mount = full host compromise). Because auth is not relied on, the **socket allowlist (I2) is the sole and primary control**: the server NEVER proxies the raw socket to the client and only ever performs `{list, inspect, start, stop, restart, logs}` — never `create/exec/commit/build/pull/volume/network`. Threat model (stated in `docs/THREAT-MODEL.md`): trusted operator on a trusted home LAN; the page is open to anyone on that LAN (guest device, IoT device, a stray browser doing a cross-origin POST). Mutations are POST-only to avoid trivial GET/CSRF-by-image, but with no session there is no token-based CSRF defense — residual risk acknowledged. Plain HTTP ⇒ traffic is sniffable on a hostile L2. The named upgrade path if exposure ever changes: add auth + TLS behind a reverse proxy. The allowlist, not the transport or auth, bounds the blast radius.
 - **D6 — Drive health / SMART degradation:** `/data` ext4 usage ALWAYS available (statvfs on bind-mounted `/data`). Per-disk I/O ALWAYS available from `/proc/diskstats` (delta → IOPS + throughput). SMART almost certainly NOT viable (Tegra eMMC has no ATA SMART; SATA SMART needs CAP_SYS_RAWIO + ata passthrough this stack lacks) — no bundled smartctl. The drive card shows ext4 usage + diskstats as the primary signal and a clearly-labelled `smart.available:false` with a human reason. **Absence of SMART never blanks the card (I4).**
@@ -67,7 +67,7 @@ All paths under `http://10.0.0.88:8888`. **No auth** (A2) — every endpoint is 
 **Error contract:** every endpoint returns JSON `{error, detail?}` with an appropriate 4xx/5xx on failure.
 
 **Container / run contract**
-- Image FROM `node:20-bookworm-slim` (digest-pinned), multi-stage, arm64. ENTRYPOINT `node build`.
+- Image FROM `node:22-bookworm-slim` (digest-pinned), multi-stage, arm64. ENTRYPOINT `node build`.
 - Env: `SHIELD_C2_PORT` (default 8888), `SHIELD_C2_INTERVAL_MS` (default 2000, floor 1000), `HOST_PROC` (default `/host/proc`), `HOST_SYS` (default `/host/sys`), `HOST_DATA` (default `/host/data`). **No `SHIELD_C2_TOKEN`** (A2).
 - Bind mounts (set by launcher): `ro /proc→/host/proc`, `ro /sys→/host/sys`, `ro /data→/host/data`, `rw /data/docker/docker.sock→/var/run/docker.sock`.
 - Run flags: `--network host`, `--restart=always`, `--name shield-c2`.
@@ -84,7 +84,7 @@ All paths under `http://10.0.0.88:8888`. **No auth** (A2) — every endpoint is 
 - **I6 READ-ONLY HOST MOUNTS:** `/proc`,`/sys`,`/data` bind-mounted read-only; server reads host metrics only from these. Only writable host resource is the docker socket.
 - **I7 SINGLE SHARED SAMPLER:** exactly one server-side sampling loop per interval, fanned out to all SSE clients. Reads are O(1) in client count.
 - **I8′ POST-ONLY MUTATION:** all state changes (start/stop/restart) are POST, never reachable via GET. (No session/CSRF token under A2; residual cross-origin-POST risk documented.)
-- **I9 CONSERVATIVE SYSCALL BASE:** runtime image runs on kernel 4.9.141 without `ENOSYS` at startup (glibc base; node:20-bookworm-slim or documented node:18-bullseye-slim fallback).
+- **I9 CONSERVATIVE SYSCALL BASE:** runtime image runs on kernel 4.9.141 without `ENOSYS` at startup (glibc base; node:22-bookworm-slim or documented node:18-bullseye-slim fallback).
 - **I10 RESOURCE FRUGALITY:** image ≤250 MB (hard ceiling 350 MB); steady-state RSS target <150 MB so it coexists with Uptime-Kuma and other workloads on 3 GB. No bundled smartctl/heavy deps.
 - **I11 SOCKET PATH FIDELITY:** host socket `unix:///data/docker/docker.sock` mapped to where the app expects it; launcher and app agree (mapped to the conventional `/var/run/docker.sock`).
 - **I12 NO SECRETS/BLOBS IN HISTORY:** nothing baked into the image or git history; `.gitignore` excludes `node_modules`/build/.svelte-kit and the multi-hundred-MB `.apk`/`.zip`/`.img`/`.tgz` blobs.
@@ -186,7 +186,7 @@ A pass is every command exiting 0, with the corresponding evidence retained.
 ## 7. Deliverables
 
 - `shield-c2/` — the SvelteKit (adapter-node) app: dashboard with CPU / RAM / Drive / Network / Temps / Containers cards live over SSE, per-container start/stop/restart + logs viewer. Server-side metric collectors reading the bind-mounted host paths; typed docker-socket client implementing only the allowlist.
-- `shield-c2/Dockerfile` — multi-stage, arm64, `node:20-bookworm-slim` (digest-pinned), ≤250 MB.
+- `shield-c2/Dockerfile` — multi-stage, arm64, `node:22-bookworm-slim` (digest-pinned), ≤250 MB.
 - `docker-bringup/c2.sh` — launcher following the standard launcher conventions (host net, `--restart=always`, ro `/proc`/`/sys`/`/data`, rw socket, env, idempotent, port-free assertion).
 - `docs/THREAT-MODEL.md` — the honest unauthenticated-by-choice threat model.
 

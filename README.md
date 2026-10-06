@@ -174,8 +174,8 @@ On-device installs are deterministic: `npm ci` against the committed `package-lo
 > [!CAUTION]
 > **`shield-c2` and Uptime-Kuma are unauthenticated and bound to the LAN by design.** This is safe **only** because the Shield is not reachable from the internet (no port-forwards). The control surface is bounded by a server-side docker-socket allowlist, not by auth — see the full [**threat model**](docs/THREAT-MODEL.md).
 
-- **`shield-c2` dependency versions** (committed `package.json`): `@sveltejs/adapter-node ^5.5.4`, `@sveltejs/kit ^2.66.0`, `@sveltejs/vite-plugin-svelte ^6.0.0`, `svelte ^5.1.0`, `vite ^6.3.5`.
-- **One accepted residual advisory:** `cookie <0.7.0` (GHSA-pxg6-pf52-xh8x, **LOW**) reaches transitively through `@sveltejs/kit` 2.x. It is irreducible without abandoning SvelteKit 2, and unreachable here — `shield-c2` sets no cookies (`grep -r "cookies.set" src/` returns 0 hits), and `npm audit --omit=dev` returns **0** (the pruned runtime tree carries no vulnerable dependency). A known, accepted, non-exploitable residual.
+- **`shield-c2` dependency versions** (committed `package.json`): `@sveltejs/adapter-node ^6.0.0`, `@sveltejs/kit ^3.0.1`, `@sveltejs/vite-plugin-svelte ^7.3.1`, `svelte ^5.57.1`, `vite ^8.0.12`. SvelteKit 3 requires **Node >=22.17**, so the image base is `node:22-bookworm-slim`.
+- **No known advisories:** the SvelteKit 3 upgrade moved `cookie` to 2.x, clearing the `cookie <0.7.0` advisory (GHSA-pxg6-pf52-xh8x, LOW). `npm audit` returns **0** vulnerabilities on the full tree.
 - **Reproducible builds:** `shield-c2/Dockerfile` uses `npm ci` against the committed `package-lock.json`, so the on-device arm64 image is exactly the tracked dependency tree (no `^`-range drift between lockfile and ship).
 - **Launchers are re-run-safe:** each `docker-bringup/*.sh` does `docker rm -f` before any port-free assert, so the pull-deploy can re-run them while a service is up without a false "port in use" failure.
 - The static Docker binaries are **not committed** (large; `.gitignore`d).

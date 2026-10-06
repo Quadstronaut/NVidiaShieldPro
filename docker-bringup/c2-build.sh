@@ -4,7 +4,7 @@
 # fix, then commit with the same runtime config as the original Dockerfile.
 set -e
 DK="/data/docker/bin/docker -H unix:///data/docker/docker.sock"
-IMG="node:20-bookworm-slim@sha256:10fc5f5f33cba34a4befa58fcf95f724e67707fab7c32fb8cd3fcf90ebcc20df"
+IMG="node:22-bookworm-slim@sha256:b20fe038d9592822dd534600a1ddf467e985178aa3fed60ec441a056c2cc45bd"
 CTX=/data/docker/shield-c2-src
 
 $DK rm -f c2-build 2>/dev/null || true
@@ -16,7 +16,6 @@ echo "== copy source =="
 $DK exec c2-build sh -c 'mkdir -p /app'
 $DK cp "$CTX/package.json"      c2-build:/app/package.json
 $DK cp "$CTX/package-lock.json" c2-build:/app/package-lock.json
-$DK cp "$CTX/svelte.config.js"  c2-build:/app/svelte.config.js
 $DK cp "$CTX/vite.config.js"    c2-build:/app/vite.config.js
 $DK cp "$CTX/.npmrc"            c2-build:/app/.npmrc
 $DK cp "$CTX/src"               c2-build:/app/src

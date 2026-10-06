@@ -4,11 +4,12 @@
 # 2.36 degrades instead of hard-failing. Runtime stage carries only build output
 # + production deps to stay under the 250 MB target (I10).
 #
-# Digest is for node:20-bookworm-slim linux/arm64. Verify on-device before ship;
+# Digest is for node:22-bookworm-slim (22.23.3) linux/arm64. Node >=22.17 is required
+# by @sveltejs/kit 3 (engines) and cookie 2; Node 20 fails the build. Verify on-device before ship;
 # documented fallback is node:18-bullseye-slim (logged exception, I9).
 
 # ---- build stage ----
-FROM --platform=linux/arm64 node:20-bookworm-slim@sha256:10fc5f5f33cba34a4befa58fcf95f724e67707fab7c32fb8cd3fcf90ebcc20df AS build
+FROM --platform=linux/arm64 node:22-bookworm-slim@sha256:b20fe038d9592822dd534600a1ddf467e985178aa3fed60ec441a056c2cc45bd AS build
 WORKDIR /app
 # Install ALL deps (incl. dev) for the SvelteKit build, pinned to the lockfile.
 # npm ci = deterministic install of exactly the audited tree (needs package-lock.json,
@@ -22,7 +23,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ---- runtime stage ----
-FROM --platform=linux/arm64 node:20-bookworm-slim@sha256:10fc5f5f33cba34a4befa58fcf95f724e67707fab7c32fb8cd3fcf90ebcc20df AS runtime
+FROM --platform=linux/arm64 node:22-bookworm-slim@sha256:b20fe038d9592822dd534600a1ddf467e985178aa3fed60ec441a056c2cc45bd AS runtime
 ENV NODE_ENV=production
 # Defaults; the launcher overrides as needed. NO token (A2).
 ENV SHIELD_C2_PORT=8888 \
