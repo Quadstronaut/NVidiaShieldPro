@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { stopContainer } from '$lib/server/docker.js';
+import { stopContainer } from '#lib/server/docker.js';
 
 // POST-only mutation (I8').
 export async function POST({ params }) {

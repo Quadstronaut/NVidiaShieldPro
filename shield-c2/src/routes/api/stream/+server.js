@@ -1,5 +1,5 @@
-import { subscribe } from '$lib/server/sampler.js';
-import { config } from '$lib/server/config.js';
+import { subscribe } from '#lib/server/sampler.js';
+import { config } from '#lib/server/config.js';
 
 // SSE: text/event-stream, one long-lived response per client, all fed by the
 // single shared sampler (I7). Sampler faults emit `event: error` but the stream

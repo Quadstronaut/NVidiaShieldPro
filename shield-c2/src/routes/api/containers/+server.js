@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { listContainers } from '$lib/server/docker.js';
+import { listContainers } from '#lib/server/docker.js';
 
 // list (allowlist). No auth (A2).
 export async function GET() {

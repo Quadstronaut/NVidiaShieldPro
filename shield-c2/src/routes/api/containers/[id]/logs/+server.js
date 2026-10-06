@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { containerLogs } from '$lib/server/docker.js';
+import { containerLogs } from '#lib/server/docker.js';
 
 // logs (allowlist). text/plain, tail default 200 cap 1000.
 export async function GET({ params, url }) {

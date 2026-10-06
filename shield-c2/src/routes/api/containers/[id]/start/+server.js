@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { startContainer } from '$lib/server/docker.js';
+import { startContainer } from '#lib/server/docker.js';
 
 // POST-only mutation (I8'). A GET to this path has no handler => 405, never mutates.
 export async function POST({ params }) {

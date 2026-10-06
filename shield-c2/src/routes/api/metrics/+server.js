@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { getSnapshot } from '$lib/server/sampler.js';
+import { getSnapshot } from '#lib/server/sampler.js';
 
 // One-shot MetricsSnapshot for non-SSE clients / tests (no auth — A2).
 export async function GET() {
